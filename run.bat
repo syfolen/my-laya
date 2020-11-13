@@ -1,5 +1,7 @@
 @echo off
 
-node ..\..\..\node\ts-tool\bin\main.js
+cd ..\ts-tool
+
+node bin\main.js
 
 @pause
