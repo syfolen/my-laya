@@ -2,7 +2,7 @@ var __extends = (this && this.__extends) || (function () {
     var extendStatics = function (d, b) {
         extendStatics = Object.setPrototypeOf ||
             ({ __proto__: [] } instanceof Array && function (d, b) { d.__proto__ = b; }) ||
-            function (d, b) { for (var p in b) if (b.hasOwnProperty(p)) d[p] = b[p]; };
+            function (d, b) { for (var p in b) if (Object.prototype.hasOwnProperty.call(b, p)) d[p] = b[p]; };
         return extendStatics(d, b);
     };
     return function (d, b) {
@@ -32,6 +32,7 @@ var suncom;
         EnvMode[EnvMode["DEVELOP"] = 0] = "DEVELOP";
         EnvMode[EnvMode["DEBUG"] = 1] = "DEBUG";
         EnvMode[EnvMode["WEB"] = 2] = "WEB";
+        EnvMode[EnvMode["NATIVE"] = 3] = "NATIVE";
     })(EnvMode = suncom.EnvMode || (suncom.EnvMode = {}));
     var EventPriorityEnum;
     (function (EventPriorityEnum) {
@@ -44,74 +45,51 @@ var suncom;
         EventPriorityEnum[EventPriorityEnum["EGL"] = 6] = "EGL";
         EventPriorityEnum[EventPriorityEnum["OSL"] = 7] = "OSL";
     })(EventPriorityEnum = suncom.EventPriorityEnum || (suncom.EventPriorityEnum = {}));
+    var EventInfo = (function () {
+        function EventInfo() {
+            this.type = null;
+            this.caller = null;
+            this.method = null;
+            this.priority = EventPriorityEnum.MID;
+            this.receiveOnce = false;
+        }
+        EventInfo.prototype.recover = function () {
+            this.caller = null;
+            this.method = null;
+            Pool.recover("suncom.EventInfo", this);
+        };
+        return EventInfo;
+    }());
+    suncom.EventInfo = EventInfo;
     var EventSystem = (function () {
         function EventSystem() {
-            this.$events = {};
-            this.$onceList = [];
-            this.$isCanceled = false;
+            this.$var_events = {};
+            this.$var_lockers = {};
+            this.$var_onceList = [];
+            this.$var_isCanceled = false;
         }
-        EventSystem.prototype.dispatchCancel = function () {
-            this.$isCanceled = true;
-        };
-        EventSystem.prototype.dispatchEvent = function (type, args, cancelable) {
-            if (cancelable === void 0) { cancelable = false; }
-            if (Common.isStringInvalidOrEmpty(type) === true) {
-                throw Error("\u6D3E\u53D1\u65E0\u6548\u4E8B\u4EF6\uFF01\uFF01\uFF01");
-            }
-            var list = this.$events[type] || null;
-            if (list === null) {
-                return;
-            }
-            list[0] = true;
-            var isCanceled = this.$isCanceled;
-            this.$isCanceled = false;
-            for (var i = 1; i < list.length; i++) {
-                var event_1 = list[i];
-                if (event_1.receiveOnce === true) {
-                    this.$onceList.push(event_1);
-                }
-                if (args === void 0) {
-                    event_1.method.call(event_1.caller);
-                }
-                else if (args instanceof Array) {
-                    event_1.method.apply(event_1.caller, args);
-                }
-                else {
-                    event_1.method.call(event_1.caller, args);
-                }
-                if (this.$isCanceled) {
-                    if (cancelable === true) {
-                        break;
-                    }
-                    suncom.Test.notExpected("\u5C1D\u8BD5\u53D6\u6D88\u4E0D\u53EF\u88AB\u53D6\u6D88\u7684\u4E8B\u4EF6\uFF1A" + name);
-                }
-            }
-            this.$isCanceled = isCanceled;
-            list[0] = false;
-            while (this.$onceList.length > 0) {
-                var event_2 = this.$onceList.pop();
-                this.removeEventListener(event_2.type, event_2.method, event_2.caller);
-            }
-        };
         EventSystem.prototype.addEventListener = function (type, method, caller, receiveOnce, priority) {
             if (receiveOnce === void 0) { receiveOnce = false; }
             if (priority === void 0) { priority = EventPriorityEnum.MID; }
-            if (Common.isStringInvalidOrEmpty(type) === true) {
+            if (Common.isStringNullOrEmpty(type) === true) {
                 throw Error("\u6CE8\u518C\u65E0\u6548\u4E8B\u4EF6\uFF01\uFF01\uFF01");
             }
             if (method === void 0 || method === null) {
                 throw Error("\u6CE8\u518C\u65E0\u6548\u7684\u4E8B\u4EF6\u56DE\u8C03\uFF01\uFF01\uFF01");
             }
-            var list = this.$events[type] || null;
-            if (list === null) {
-                list = this.$events[type] = [false];
+            if (caller === void 0) {
+                caller = null;
             }
-            else if (list[0] === true) {
-                list = this.$events[type] = list.slice(0);
-                list[0] = false;
+            var list = this.$var_events[type];
+            if (list === void 0) {
+                list = this.$var_events[type] = [];
+            }
+            else if (this.$var_lockers[type] === true) {
+                this.$var_events[type] = list = list.slice(0);
+                this.$var_lockers[type] = false;
             }
             var index = -1;
-            for (var i = 1; i < list.length; i++) {
+            for (var i = 0; i < list.length; i++) {
                 var item = list[i];
                 if (item.method === method && item.caller === caller) {
                     return;
@@ -120,13 +98,12 @@ var suncom;
                     index = i;
                 }
             }
-            var event = {
-                type: type,
-                method: method,
-                caller: caller,
-                priority: priority,
-                receiveOnce: receiveOnce
-            };
+            var event = Pool.getItemByClass("suncom.EventInfo", EventInfo);
+            event.type = type;
+            event.caller = caller;
+            event.method = method;
+            event.priority = priority;
+            event.receiveOnce = receiveOnce;
             if (index < 0) {
                 list.push(event);
             }
@@ -135,30 +112,75 @@ var suncom;
             }
         };
         EventSystem.prototype.removeEventListener = function (type, method, caller) {
-            if (Common.isStringInvalidOrEmpty(type) === true) {
+            if (Common.isStringNullOrEmpty(type) === true) {
                 throw Error("\u79FB\u9664\u65E0\u6548\u7684\u4E8B\u4EF6\uFF01\uFF01\uFF01");
             }
             if (method === void 0 || method === null) {
                 throw Error("\u79FB\u9664\u65E0\u6548\u7684\u4E8B\u4EF6\u56DE\u8C03\uFF01\uFF01\uFF01");
             }
-            var list = this.$events[type] || null;
-            if (list === null) {
+            if (caller === void 0) {
+                caller = null;
+            }
+            var list = this.$var_events[type];
+            if (list === void 0) {
                 return;
             }
-            if (list[0] === true) {
-                list = this.$events[type] = list.slice(0);
-                list[0] = false;
+            if (this.$var_lockers[type] === true) {
+                this.$var_events[type] = list = list.slice(0);
+                this.$var_lockers[type] = false;
             }
             for (var i = 0; i < list.length; i++) {
-                var event_3 = list[i];
-                if (event_3.method === method && event_3.caller === caller) {
-                    list.splice(i, 1);
+                var event_1 = list[i];
+                if (event_1.method === method && event_1.caller === caller) {
+                    list.splice(i, 1)[0].recover();
                     break;
                 }
             }
-            if (list.length === 1) {
-                delete this.$events[type];
+            if (list.length === 0) {
+                delete this.$var_events[type];
+                delete this.$var_lockers[type];
             }
+        };
+        EventSystem.prototype.dispatchEvent = function (type, data, cancelable) {
+            if (cancelable === void 0) { cancelable = true; }
+            if (Common.isStringNullOrEmpty(type) === true) {
+                throw Error("\u6D3E\u53D1\u65E0\u6548\u4E8B\u4EF6\uFF01\uFF01\uFF01");
+            }
+            var list = this.$var_events[type];
+            if (list === void 0) {
+                return;
+            }
+            this.$var_lockers[type] = true;
+            var isCanceled = this.$var_isCanceled;
+            this.$var_isCanceled = false;
+            for (var i = 0; i < list.length; i++) {
+                var event_2 = list[i];
+                if (event_2.receiveOnce === true) {
+                    this.$var_onceList.push(event_2);
+                }
+                if (data instanceof Array) {
+                    event_2.method.apply(event_2.caller, data);
+                }
+                else {
+                    event_2.method.call(event_2.caller, data);
+                }
+                if (this.$var_isCanceled) {
+                    if (cancelable === true) {
+                        break;
+                    }
+                    console.error("\u5C1D\u8BD5\u53D6\u6D88\u4E0D\u53EF\u88AB\u53D6\u6D88\u7684\u4E8B\u4EF6\uFF1A" + type);
+                    this.$var_isCanceled = false;
+                }
+            }
+            this.$var_isCanceled = isCanceled;
+            this.$var_lockers[type] = false;
+            while (this.$var_onceList.length > 0) {
+                var event_3 = this.$var_onceList.pop();
+                this.removeEventListener(event_3.type, event_3.method, event_3.caller);
+            }
+        };
+        EventSystem.prototype.dispatchCancel = function () {
+            this.$var_isCanceled = true;
         };
         return EventSystem;
     }());
@@ -166,25 +188,26 @@ var suncom;
     var Expect = (function () {
         function Expect(description) {
             if (description === void 0) { description = null; }
-            this.$asNot = false;
-            this.$interpretation = null;
+            this.$var_value = void 0;
+            this.$var_asNot = false;
+            this.$var_interpretation = null;
             if (Global.debugMode & DebugMode.TEST) {
                 description !== null && Logger.log(DebugMode.ANY, description);
             }
         }
         Expect.prototype.expect = function (value) {
-            this.$value = value;
+            this.$var_value = value;
             return this;
         };
         Expect.prototype.interpret = function (str) {
-            this.$interpretation = str;
+            this.$var_interpretation = str;
             return this;
         };
         Expect.prototype.test = function (pass, message) {
-            if ((this.$asNot === false && pass === false) || (this.$asNot === true && pass === true)) {
+            if ((this.$var_asNot === false && pass === false) || (this.$var_asNot === true && pass === true)) {
                 Test.ASSERT_FAILED = true;
                 message !== null && Logger.error(DebugMode.ANY, message);
-                this.$interpretation !== null && Logger.error(DebugMode.ANY, this.$interpretation);
+                this.$var_interpretation !== null && Logger.error(DebugMode.ANY, this.$var_interpretation);
                 if (Test.ASSERT_BREAKPOINT === true) {
                     debugger;
                 }
@@ -193,8 +216,8 @@ var suncom;
         };
         Expect.prototype.anything = function () {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value !== null && this.$value !== void 0;
-                var message = "\u671F\u671B\u503C" + (this.$asNot === false ? "" : "不为") + "\uFF1Anull or undefined, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var pass = this.$var_value !== null && this.$var_value !== void 0;
+                var message = "\u671F\u671B\u503C" + (this.$var_asNot === false ? "" : "不为") + "\uFF1Anull or undefined, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
@@ -203,40 +226,40 @@ var suncom;
                 var pass = true;
                 for (var i = 0; i < array.length; i++) {
                     var value = array[i];
-                    if (this.$value.indexOf(value) < 0) {
+                    if (this.$var_value.indexOf(value) < 0) {
                         pass = false;
                         break;
                     }
                 }
-                var message = "\u671F\u671B" + (this.$asNot === false ? "" : "不") + "\u5305\u542B\uFF1A" + Common.toDisplayString(array) + ", \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var message = "\u671F\u671B" + (this.$var_asNot === false ? "" : "不") + "\u5305\u542B\uFF1A" + Common.toDisplayString(array) + ", \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
         Expect.prototype.stringContaining = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value.indexOf(value) > -1;
-                var message = "\u671F\u671B" + (this.$asNot === false ? "" : "不") + "\u5305\u542B\uFF1A" + value + ", \u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = this.$var_value.indexOf(value) > -1;
+                var message = "\u671F\u671B" + (this.$var_asNot === false ? "" : "不") + "\u5305\u542B\uFF1A" + value + ", \u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.stringMatching = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = value.indexOf(this.$value) > -1;
-                var message = "\u671F\u671B" + (this.$asNot === false ? "" : "不") + "\u88AB\u5305\u542B\uFF1A" + value + ", \u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = value.indexOf(this.$var_value) > -1;
+                var message = "\u671F\u671B" + (this.$var_asNot === false ? "" : "不") + "\u88AB\u5305\u542B\uFF1A" + value + ", \u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toHaveProperty = function (key, value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = value === void 0 ? this.$value[key] !== void 0 : this.$value[key] === value;
-                var message = "\u671F\u671B" + (this.$asNot === false ? "" : "不") + "\u5B58\u5728\u5C5E\u6027\uFF1A" + key + ", \u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = value === void 0 ? this.$var_value[key] !== void 0 : this.$var_value[key] === value;
+                var message = "\u671F\u671B" + (this.$var_asNot === false ? "" : "不") + "\u5B58\u5728\u5C5E\u6027\uFF1A" + key + ", \u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBe = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value === value;
-                var message = "\u671F\u671B\u503C" + (this.$asNot === false ? "" : "不为") + "\uFF1A" + Common.toDisplayString(value) + ", \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var pass = this.$var_value === value;
+                var message = "\u671F\u671B\u503C" + (this.$var_asNot === false ? "" : "不为") + "\uFF1A" + Common.toDisplayString(value) + ", \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
@@ -248,154 +271,189 @@ var suncom;
         };
         Expect.prototype.toBeBoolean = function () {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = typeof this.$value === "boolean";
-                var message = "\u671F\u671B" + (this.$asNot === false ? "为" : "不为") + "\uFF1A\u5E03\u5C14\u7C7B\u578B, \u5B9E\u9645\u4E3A\uFF1A" + typeof this.$value;
+                var pass = typeof this.$var_value === "boolean";
+                var message = "\u671F\u671B" + (this.$var_asNot === false ? "为" : "不为") + "\uFF1A\u5E03\u5C14\u7C7B\u578B, \u5B9E\u9645\u4E3A\uFF1A" + typeof this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeInstanceOf = function (cls) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value instanceof cls;
-                var message = "\u671F\u671B " + Common.getQualifiedClassName(this.$value) + " \u7684\u7C7B\u578B" + (this.$asNot === false ? "" : "不") + "\u4E3A " + Common.getClassName(cls);
+                var pass = this.$var_value instanceof cls;
+                var message = "\u671F\u671B " + Common.getQualifiedClassName(this.$var_value) + " \u7684\u7C7B\u578B" + (this.$var_asNot === false ? "" : "不") + "\u4E3A " + Common.getClassName(cls);
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeFalsy = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
                 var pass = value ? false : true;
-                var message = "\u671F\u671B " + Common.toDisplayString(value) + " " + (this.$asNot === false ? "" : "不") + "\u4E3A\u5047, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var message = "\u671F\u671B " + Common.toDisplayString(value) + " " + (this.$var_asNot === false ? "" : "不") + "\u4E3A\u5047, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeTruthy = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
                 var pass = value ? true : false;
-                var message = "\u671F\u671B " + Common.toDisplayString(value) + " " + (this.$asNot === false ? "" : "不") + "\u4E3A\u5047, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var message = "\u671F\u671B " + Common.toDisplayString(value) + " " + (this.$var_asNot === false ? "" : "不") + "\u4E3A\u5047, \u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeCloseTo = function (value, deviation) {
             if (deviation === void 0) { deviation = 0; }
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = Math.abs(this.$value - value) <= Math.abs(deviation);
-                var message = "\u671F\u671B\u4E0E" + value + "\u7684\u8BEF\u5DEE" + (this.$asNot === true ? "" : "不") + "\u8D85\u8FC7" + deviation + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = Math.abs(this.$var_value - value) <= Math.abs(deviation);
+                var message = "\u671F\u671B\u4E0E" + value + "\u7684\u8BEF\u5DEE" + (this.$var_asNot === true ? "" : "不") + "\u8D85\u8FC7" + deviation + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeGreaterThan = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value > value;
-                var message = "\u671F\u671B" + (this.$asNot === true ? "" : "不") + "\u5927\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = this.$var_value > value;
+                var message = "\u671F\u671B" + (this.$var_asNot === true ? "" : "不") + "\u5927\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeGreaterOrEqualThan = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value >= value;
-                var message = "\u671F\u671B" + (this.$asNot === true ? "" : "不") + "\u5927\u4E8E\u7B49\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = this.$var_value >= value;
+                var message = "\u671F\u671B" + (this.$var_asNot === true ? "" : "不") + "\u5927\u4E8E\u7B49\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeLessThan = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value < value;
-                var message = "\u671F\u671B" + (this.$asNot === true ? "" : "不") + "\u5C0F\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = this.$var_value < value;
+                var message = "\u671F\u671B" + (this.$var_asNot === true ? "" : "不") + "\u5C0F\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toBeLessOrEqualThan = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = this.$value <= value;
-                var message = "\u671F\u671B" + (this.$asNot === true ? "" : "不") + "\u5C0F\u4E8E\u7B49\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$value;
+                var pass = this.$var_value <= value;
+                var message = "\u671F\u671B" + (this.$var_asNot === true ? "" : "不") + "\u5C0F\u4E8E\u7B49\u4E8E " + value + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + this.$var_value;
                 this.test(pass, message);
             }
         };
         Expect.prototype.toEqual = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = Common.isEqual(this.$value, value, false);
-                var message = "\u671F\u671B\u76F8\u7B49\uFF1A" + Common.toDisplayString(value) + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var pass = Common.isEqual(this.$var_value, value, false);
+                var message = "\u671F\u671B\u76F8\u7B49\uFF1A" + Common.toDisplayString(value) + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
         Expect.prototype.toStrictEqual = function (value) {
             if (Global.debugMode & DebugMode.TEST) {
-                var pass = Common.isEqual(this.$value, value, true);
-                var message = "\u671F\u671B\u76F8\u7B49\uFF1A" + Common.toDisplayString(value) + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$value);
+                var pass = Common.isEqual(this.$var_value, value, true);
+                var message = "\u671F\u671B\u76F8\u7B49\uFF1A" + Common.toDisplayString(value) + "\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(this.$var_value);
                 this.test(pass, message);
             }
         };
         Object.defineProperty(Expect.prototype, "not", {
             get: function () {
-                this.$asNot = true;
+                this.$var_asNot = true;
                 return this;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return Expect;
     }());
     suncom.Expect = Expect;
     var Handler = (function () {
-        function Handler(caller, method, args) {
-            this.$args = args;
-            this.$caller = caller;
-            this.$method = method;
+        function Handler() {
+            this.$var_id = 0;
+            this.$var_args = null;
+            this.$var_caller = null;
+            this.$var_method = null;
+            this.$var_once = false;
         }
-        Handler.prototype.run = function () {
-            if (this.$args === void 0) {
-                return this.$method.call(this.$caller);
+        Handler.prototype.setTo = function (caller, method, args, once) {
+            if (args === void 0) { args = null; }
+            if (once === void 0) { once = true; }
+            if (this.$var_id === -1) {
+                throw Error("Handler\u5DF1\u88AB\u56DE\u6536\uFF01\uFF01\uFF01");
             }
-            return this.$method.apply(this.$caller, this.$args);
+            this.$var_id = Common.createHashId();
+            this.$var_caller = caller || null;
+            this.$var_method = method || null;
+            this.$var_args = args;
+            this.$var_once = once;
+            return this;
+        };
+        Handler.prototype.run = function () {
+            var id = this.$var_id;
+            var res = this.$var_method.apply(this.$var_caller, this.$var_args);
+            id === this.$var_id && this.$var_once === true && this.recover();
+            return res;
         };
         Handler.prototype.runWith = function (args) {
-            if (this.$args === void 0) {
-                if (args instanceof Array) {
-                    return this.$method.apply(this.$caller, args);
-                }
-                return this.$method.call(this.$caller, args);
+            var id = this.$var_id;
+            var res;
+            if (this.$var_args !== null) {
+                res = this.$var_method.apply(this.$var_caller, this.$var_args.concat(args));
             }
-            return this.$method.apply(this.$caller, this.$args.concat(args));
+            else if (args instanceof Array) {
+                res = this.$var_method.apply(this.$var_caller, args);
+            }
+            else {
+                res = this.$var_method.call(this.$var_caller, args);
+            }
+            id === this.$var_id && this.$var_once === true && this.recover();
+            return res;
+        };
+        Handler.prototype.recover = function () {
+            if (Pool.recover("suncom.Handler", this) === true) {
+                this.$var_id = -1;
+                this.$var_args = null;
+                this.$var_caller = null;
+                this.$var_method = null;
+            }
         };
         Object.defineProperty(Handler.prototype, "caller", {
             get: function () {
-                return this.$caller;
+                return this.$var_caller;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(Handler.prototype, "method", {
             get: function () {
-                return this.$method;
+                return this.$var_method;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
-        Handler.create = function (caller, method, args) {
-            return new Handler(caller, method, args);
+        Handler.create = function (caller, method, args, once) {
+            var handler = Pool.getItemByClass("suncom.Handler", Handler);
+            handler.$var_id = 0;
+            return handler.setTo(caller, method, args, once);
         };
         return Handler;
     }());
     suncom.Handler = Handler;
     var HashMap = (function () {
         function HashMap(primaryKey) {
+            this.$var_primaryKey = null;
+            this.$var_dataMap = {};
             this.source = [];
-            this.dataMap = {};
+            if (typeof primaryKey === "number") {
+                primaryKey = primaryKey + "";
+            }
             if (typeof primaryKey !== "string") {
                 throw Error("\u975E\u6CD5\u7684\u4E3B\u952E\u5B57\u6BB5\u540D\uFF1A" + primaryKey);
             }
             if (primaryKey.length === 0) {
                 throw Error("\u65E0\u6548\u7684\u4E3B\u952E\u5B57\u6BB5\u540D\u5B57\u957F\u5EA6\uFF1A" + primaryKey.length);
             }
-            this.$primaryKey = primaryKey;
+            this.$var_primaryKey = primaryKey;
         }
-        HashMap.prototype.$removeByIndex = function (index) {
+        HashMap.prototype.$func_removeByIndex = function (index) {
             var data = this.source[index];
             this.source.splice(index, 1);
-            var value = data[this.$primaryKey];
-            delete this.dataMap[value];
+            var value = data[this.$var_primaryKey];
+            delete this.$var_dataMap[value];
             return data;
         };
-        HashMap.prototype.$getIndexByValue = function (key, value) {
+        HashMap.prototype.$func_getIndexByValue = function (key, value) {
             if (value === void 0) {
                 return -1;
             }
@@ -408,48 +466,48 @@ var suncom;
             return -1;
         };
         HashMap.prototype.put = function (data) {
-            var value = data[this.$primaryKey];
-            if (Common.isStringInvalidOrEmpty(value) === true) {
+            var value = data[this.$var_primaryKey];
+            if (Common.isStringNullOrEmpty(value) === true) {
                 throw Error("\u65E0\u6548\u7684\u4E3B\u952E\u7684\u503C\uFF0Ctype:" + typeof value + ", value:" + value);
             }
             if (this.getByPrimaryValue(value) === null) {
                 this.source.push(data);
-                this.dataMap[value] = data;
+                this.$var_dataMap[value] = data;
             }
             else {
-                throw Error("\u91CD\u590D\u7684\u4E3B\u952E\u503C\uFF1A[" + this.$primaryKey + "]" + value);
+                throw Error("\u91CD\u590D\u7684\u4E3B\u952E\u503C\uFF1A[" + this.$var_primaryKey + "]" + value);
             }
             return data;
         };
         HashMap.prototype.getByValue = function (key, value) {
-            if (key === this.$primaryKey) {
+            if (key === this.$var_primaryKey) {
                 return this.getByPrimaryValue(value);
             }
-            var index = this.$getIndexByValue(key, value);
+            var index = this.$func_getIndexByValue(key, value);
             if (index === -1) {
                 return null;
             }
             return this.source[index];
         };
         HashMap.prototype.getByPrimaryValue = function (value) {
-            return this.dataMap[value.toString()] || null;
+            return this.$var_dataMap[value.toString()] || null;
         };
         HashMap.prototype.remove = function (data) {
             var index = this.source.indexOf(data);
             if (index === -1) {
                 return data;
             }
-            return this.$removeByIndex(index);
+            return this.$func_removeByIndex(index);
         };
         HashMap.prototype.removeByValue = function (key, value) {
-            if (key === this.$primaryKey) {
+            if (key === this.$var_primaryKey) {
                 return this.removeByPrimaryValue(value);
             }
-            var index = this.$getIndexByValue(key, value);
+            var index = this.$func_getIndexByValue(key, value);
             if (index === -1) {
                 return null;
             }
-            return this.$removeByIndex(index);
+            return this.$func_removeByIndex(index);
         };
         HashMap.prototype.removeByPrimaryValue = function (value) {
             var data = this.getByPrimaryValue(value);
@@ -476,6 +534,10 @@ var suncom;
             return $hashId;
         }
         Common.createHashId = createHashId;
+        function isNullOrUndefined(value) {
+            return value === void 0 || value === null;
+        }
+        Common.isNullOrUndefined = isNullOrUndefined;
         function getClassName(cls) {
             var classString = cls.toString().trim();
             var index = classString.indexOf("(");
@@ -491,13 +553,13 @@ var suncom;
             if (prototype === null) {
                 return type;
             }
-            return Common.getClassName(prototype.constructor);
+            return this.getClassName(prototype.constructor);
         }
         Common.getQualifiedClassName = getQualifiedClassName;
         function getMethodName(method, caller) {
             if (caller === void 0) { caller = null; }
             if (caller === null) {
-                return Common.getClassName(method);
+                return this.getClassName(method);
             }
             for (var key in caller) {
                 if (caller[key] === method) {
@@ -517,85 +579,54 @@ var suncom;
         }
         Common.convertEnumToString = convertEnumToString;
         function trim(str) {
-            if (str === void 0) { str = null; }
-            if (str === null) {
+            if (this.isNullOrUndefined(str) === true) {
                 return null;
             }
             var chrs = ["\r", "\n", "\t", " "];
-            while (str.length > 0) {
-                var length_1 = str.length;
-                for (var i = 0; i < chrs.length; i++) {
-                    var chr = chrs[i];
-                    if (str.charAt(0) === chr) {
-                        str = str.substr(1);
-                        break;
-                    }
-                    var index = str.length - 1;
-                    if (str.charAt(index) === chr) {
-                        str = str.substr(0, index);
-                        break;
-                    }
-                }
-                if (str.length === length_1) {
+            var from = 0;
+            while (from < str.length) {
+                var chr = str.charAt(from);
+                var index = chrs.indexOf(chr);
+                if (index === -1) {
                     break;
                 }
+                from++;
             }
-            return str;
+            var to = str.length - 1;
+            while (to > from) {
+                var chr = str.charAt(to);
+                var index = chrs.indexOf(chr);
+                if (index === -1) {
+                    break;
+                }
+                to--;
+            }
+            return str.substring(from, to + 1);
         }
         Common.trim = trim;
-        function isStringInvalidOrEmpty(str) {
-            if (typeof str === "number") {
-                return false;
+        function isStringNullOrEmpty(value) {
+            if (typeof value === "number") {
+                return isNaN(value);
             }
-            if (typeof str === "string" && str !== "") {
+            if (typeof value === "string" && value !== "") {
                 return false;
             }
             return true;
         }
-        Common.isStringInvalidOrEmpty = isStringInvalidOrEmpty;
+        Common.isStringNullOrEmpty = isStringNullOrEmpty;
         function formatString(str, args) {
-            var signs = ["%d", "%s"];
-            var index = 0;
-            while (args.length > 0) {
-                var key = null;
-                var indexOfReplace = -1;
-                for (var i = 0; i < signs.length; i++) {
-                    var sign = signs[i];
-                    var indexOfSign = str.indexOf(sign, index);
-                    if (indexOfSign === -1) {
-                        continue;
-                    }
-                    if (indexOfReplace === -1 || indexOfSign < indexOfReplace) {
-                        key = sign;
-                        indexOfReplace = indexOfSign;
-                    }
-                }
-                if (indexOfReplace === -1) {
-                    Logger.warn(DebugMode.ANY, "\u5B57\u7B26\u4E32\u66FF\u6362\u672A\u5B8C\u6210 str:" + str);
+            var length = str.length;
+            for (var i = 0; i < args.length; i++) {
+                var flag = "{" + i + "}";
+                var index = str.indexOf(flag, str.length - length);
+                if (index === -1) {
                     break;
                 }
-                var suffix = str.substr(indexOfReplace + key.length);
-                str = str.substr(0, indexOfReplace) + args.shift() + suffix;
-                index = str.length - suffix.length;
+                str = str.substr(0, index) + args[i] + str.substr(index + 3);
             }
             return str;
         }
         Common.formatString = formatString;
-        function formatString$(str, args) {
-            var index = 0;
-            while (args.length > 0) {
-                var indexOfSign = str.indexOf("{$}", index);
-                if (index === -1) {
-                    Logger.warn(DebugMode.ANY, "\u5B57\u7B26\u4E32\u66FF\u6362\u672A\u5B8C\u6210 str:" + str);
-                    break;
-                }
-                var suffix = str.substr(indexOfSign + 3);
-                str = str.substr(0, indexOfSign) + args.shift() + suffix;
-                index = str.length - suffix.length;
-            }
-            return str;
-        }
-        Common.formatString$ = formatString$;
         function convertToDate(date) {
             if (date instanceof Date) {
                 return date;
@@ -622,7 +653,7 @@ var suncom;
         }
         Common.convertToDate = convertToDate;
         function dateAdd(datepart, increment, time) {
-            var date = Common.convertToDate(time);
+            var date = this.convertToDate(time);
             if (datepart === "yy") {
                 date.setFullYear(date.getFullYear() + increment);
             }
@@ -666,8 +697,8 @@ var suncom;
         }
         Common.dateAdd = dateAdd;
         function dateDiff(datepart, date, date2) {
-            var d1 = Common.convertToDate(date);
-            var d2 = Common.convertToDate(date2);
+            var d1 = this.convertToDate(date);
+            var d2 = this.convertToDate(date2);
             var t1 = d1.valueOf();
             var t2 = d2.valueOf();
             if (datepart === "ms") {
@@ -706,7 +737,7 @@ var suncom;
         }
         Common.dateDiff = dateDiff;
         function formatDate(str, time) {
-            var date = Common.convertToDate(time);
+            var date = this.convertToDate(time);
             str = str.replace("MS", ("00" + (date.getMilliseconds()).toString()).substr(-3));
             str = str.replace("ms", (date.getMilliseconds()).toString());
             str = str.replace("yyyy", date.getFullYear().toString());
@@ -728,6 +759,13 @@ var suncom;
             throw Error("未实现的接口！！！");
         }
         Common.md5 = md5;
+        function getQueryString(name, param) {
+            var reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)", "i");
+            var str = param || window.location.search;
+            var array = str.substr(1).match(reg) || null;
+            return array === null ? null : decodeURIComponent(array[2]);
+        }
+        Common.getQueryString = getQueryString;
         function createHttpSign(params, key, sign) {
             if (sign === void 0) { sign = "sign"; }
             var array = [];
@@ -737,7 +775,7 @@ var suncom;
                 }
             }
             array.push("key=" + key);
-            return Common.md5(array.join("&"));
+            return this.md5(array.join("&"));
         }
         Common.createHttpSign = createHttpSign;
         function getFileName(path) {
@@ -745,7 +783,7 @@ var suncom;
             if (index > -1) {
                 path = path.substr(index + 1);
             }
-            var suffix = Common.getFileExtension(path);
+            var suffix = this.getFileExtension(path);
             if (suffix === null) {
                 return path;
             }
@@ -768,7 +806,7 @@ var suncom;
             return path.substr(0, index + 1) + newExt;
         }
         Common.replacePathExtension = replacePathExtension;
-        function findFromArray(array, method, out) {
+        function findInArray(array, method, out) {
             if (out === void 0) { out = null; }
             for (var i = 0; i < array.length; i++) {
                 var item = array[i];
@@ -781,7 +819,7 @@ var suncom;
             }
             return null;
         }
-        Common.findFromArray = findFromArray;
+        Common.findInArray = findInArray;
         function removeItemFromArray(item, array) {
             for (var i = 0; i < array.length; i++) {
                 if (array[i] === item) {
@@ -793,7 +831,7 @@ var suncom;
         Common.removeItemFromArray = removeItemFromArray;
         function removeItemsFromArray(items, array) {
             for (var i = 0; i < items.length; i++) {
-                Common.removeItemFromArray(items[i], array);
+                this.removeItemFromArray(items[i], array);
             }
         }
         Common.removeItemsFromArray = removeItemsFromArray;
@@ -806,7 +844,7 @@ var suncom;
                 else {
                     var array = [];
                     for (var i = 0; i < data.length; i++) {
-                        array.push(Common.copy(data[i], deep));
+                        array.push(this.copy(data[i], deep));
                     }
                     return array;
                 }
@@ -820,7 +858,7 @@ var suncom;
                 }
                 else {
                     for (var key in data) {
-                        newData[key] = Common.copy(data[key], deep);
+                        newData[key] = this.copy(data[key], deep);
                     }
                 }
                 return newData;
@@ -845,7 +883,7 @@ var suncom;
                     newData[key] = null;
                 }
                 else {
-                    throw Error("\u514B\u9686\u610F\u5916\u7684\u6570\u636E\u7C7B\u578B\uFF1A" + value);
+                    throw Error("克隆意外的数据类型：" + value);
                 }
             }
             return newData;
@@ -866,7 +904,7 @@ var suncom;
                     newData.sort();
                 }
                 for (var i = 0; i < oldData.length; i++) {
-                    if (Common.isEqual(oldData[i], newData[i], strict) === false) {
+                    if (this.isEqual(oldData[i], newData[i], strict) === false) {
                         return false;
                     }
                 }
@@ -877,7 +915,7 @@ var suncom;
                     return false;
                 }
                 for (var key in oldData) {
-                    if (oldData.hasOwnProperty(key) === true && Common.isEqual(oldData[key], newData[key], strict) === false) {
+                    if (oldData.hasOwnProperty(key) === true && this.isEqual(oldData[key], newData[key], strict) === false) {
                         return false;
                     }
                 }
@@ -897,7 +935,7 @@ var suncom;
             if (data instanceof Array) {
                 var array = [];
                 for (var i = 0; i < data.length; i++) {
-                    array.push(Common.toDisplayString(data[i]));
+                    array.push(this.toDisplayString(data[i]));
                 }
                 return "[" + array.join(",") + "]";
             }
@@ -906,7 +944,7 @@ var suncom;
                     str = JSON.stringify(data);
                 }
                 catch (error) {
-                    str = "[" + Common.getQualifiedClassName(data) + "]";
+                    str = "[" + this.getQualifiedClassName(data) + "]";
                 }
             }
             return str;
@@ -914,11 +952,11 @@ var suncom;
         Common.toDisplayString = toDisplayString;
         function compareVersion(ver) {
             if (typeof ver !== "string") {
-                Logger.error(DebugMode.ANY, "\u53C2\u6570\u7248\u672C\u53F7\u65E0\u6548");
+                Logger.error(DebugMode.ANY, "参数版本号无效");
                 return 0;
             }
             if (typeof Global.VERSION !== "string") {
-                Logger.error(DebugMode.ANY, "\u7248\u672C\u53F7\u672A\u8BBE\u7F6E");
+                Logger.error(DebugMode.ANY, "版本号未设置");
                 return 0;
             }
             var array = ver.split(".");
@@ -944,10 +982,10 @@ var suncom;
                 }
             }
             if (error & 0x1) {
-                Logger.error(DebugMode.ANY, "\u53C2\u6570\u7248\u672C\u53F7\u65E0\u6548 ver:" + ver);
+                Logger.error(DebugMode.ANY, "参数版本号无效 " + ("ver:" + ver));
             }
             if (error & 0x2) {
-                Logger.error(DebugMode.ANY, "\u5F53\u524D\u7248\u672C\u53F7\u65E0\u6548 ver:" + Global.VERSION);
+                Logger.error(DebugMode.ANY, "当前版本号无效 " + ("ver:" + Global.VERSION));
             }
             if (error > 0) {
                 return 0;
@@ -971,7 +1009,7 @@ var suncom;
         var $id = 0;
         DBService.$table = {};
         function get(name) {
-            return DBService.$table[name.toString()];
+            return DBService.$table[name];
         }
         DBService.get = get;
         function put(name, data) {
@@ -980,18 +1018,18 @@ var suncom;
                 DBService.$table["auto_" + $id] = data;
             }
             else {
-                DBService.$table[name.toString()] = data;
+                DBService.$table[name] = data;
             }
             return data;
         }
         DBService.put = put;
         function exist(name) {
-            return DBService.$table[name.toString()] !== void 0;
+            return DBService.$table[name] !== void 0;
         }
         DBService.exist = exist;
         function drop(name) {
             var data = DBService.get(name);
-            delete DBService.$table[name.toString()];
+            delete DBService.$table[name];
             return data;
         }
         DBService.drop = drop;
@@ -1005,6 +1043,7 @@ var suncom;
         Global.width = 1280;
         Global.height = 720;
         Global.VERSION = "1.0.0";
+        Global.dataMap = {};
     })(Global = suncom.Global || (suncom.Global = {}));
     var Logger;
     (function (Logger) {
@@ -1139,33 +1178,6 @@ var suncom;
             return a * 180 / Math.PI;
         }
         Mathf.r2d = r2d;
-        function abs(a) {
-            if (a < 0) {
-                return -a;
-            }
-            else {
-                return a;
-            }
-        }
-        Mathf.abs = abs;
-        function min(a, b) {
-            if (a < b) {
-                return a;
-            }
-            else {
-                return b;
-            }
-        }
-        Mathf.min = min;
-        function max(a, b) {
-            if (a > b) {
-                return a;
-            }
-            else {
-                return b;
-            }
-        }
-        Mathf.max = max;
         function clamp(value, min, max) {
             if (value < min) {
                 return min;
@@ -1255,8 +1267,11 @@ var suncom;
             if (typeof str === "number") {
                 return true;
             }
-            if (typeof str === "string" && isNaN(Number(str)) === false) {
-                return true;
+            if (typeof str === "string") {
+                if (str === "") {
+                    return false;
+                }
+                return isNaN(+str) === false;
             }
             return false;
         }
@@ -1266,8 +1281,8 @@ var suncom;
     (function (Pool) {
         var $pool = {};
         function getItem(sign) {
-            var array = $pool[sign] || null;
-            if (array === null || array.length === 0) {
+            var array = $pool[sign];
+            if (array === void 0 || array.length === 0) {
                 return null;
             }
             var item = array.pop();
@@ -1299,16 +1314,17 @@ var suncom;
         Pool.getItemByClass = getItemByClass;
         function recover(sign, item) {
             if (item["__suncom__$__inPool__"] === true) {
-                return;
+                return false;
             }
             item["__suncom__$__inPool__"] = true;
-            var array = $pool[sign] || null;
-            if (array === null) {
+            var array = $pool[sign];
+            if (array === void 0) {
                 $pool[sign] = [item];
             }
             else {
                 array.push(item);
             }
+            return true;
         }
         Pool.recover = recover;
         function clear(sign) {
@@ -1358,19 +1374,19 @@ var suncom;
         Test.expect = expect;
         function notExpected(message) {
             if (Global.debugMode & DebugMode.TEST) {
-                suncom.Test.expect(true).interpret("Test.notExpected \u671F\u671B\u4E4B\u5916\u7684").toBe(false);
+                Test.expect(true).interpret("Test.notExpected \u671F\u671B\u4E4B\u5916\u7684").toBe(false);
             }
         }
         Test.notExpected = notExpected;
         function assertTrue(value, message) {
             if (Global.debugMode & DebugMode.TEST) {
-                suncom.Test.expect(value).interpret(message || "Test.assertTrue error\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(value)).toBe(true);
+                Test.expect(value).interpret(message || "Test.assertTrue error\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(value)).toBe(true);
             }
         }
         Test.assertTrue = assertTrue;
         function assertFalse(value, message) {
             if (Global.debugMode & DebugMode.TEST) {
-                suncom.Test.expect(value).interpret(message || "Test.assertFalse error\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(value)).toBe(false);
+                Test.expect(value).interpret(message || "Test.assertFalse error\uFF0C\u5B9E\u9645\u503C\uFF1A" + Common.toDisplayString(value)).toBe(false);
             }
         }
         Test.assertFalse = assertFalse;
@@ -1380,19 +1396,18 @@ var suncore;
 (function (suncore) {
     var MessagePriorityEnum;
     (function (MessagePriorityEnum) {
-        MessagePriorityEnum[MessagePriorityEnum["MIN"] = 0] = "MIN";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_0"] = 1] = "PRIORITY_0";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_HIGH"] = 2] = "PRIORITY_HIGH";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_NOR"] = 3] = "PRIORITY_NOR";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_LOW"] = 4] = "PRIORITY_LOW";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_LAZY"] = 5] = "PRIORITY_LAZY";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_TRIGGER"] = 6] = "PRIORITY_TRIGGER";
-        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_TASK"] = 7] = "PRIORITY_TASK";
-        MessagePriorityEnum[MessagePriorityEnum["MAX"] = 8] = "MAX";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_0"] = 0] = "PRIORITY_0";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_HIGH"] = 1] = "PRIORITY_HIGH";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_NOR"] = 2] = "PRIORITY_NOR";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_LOW"] = 3] = "PRIORITY_LOW";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_LAZY"] = 4] = "PRIORITY_LAZY";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_TRIGGER"] = 5] = "PRIORITY_TRIGGER";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_TASK"] = 6] = "PRIORITY_TASK";
+        MessagePriorityEnum[MessagePriorityEnum["PRIORITY_PROMISE"] = 7] = "PRIORITY_PROMISE";
+        MessagePriorityEnum[MessagePriorityEnum["E_MAX"] = 8] = "E_MAX";
     })(MessagePriorityEnum = suncore.MessagePriorityEnum || (suncore.MessagePriorityEnum = {}));
     var ModuleEnum;
     (function (ModuleEnum) {
-        ModuleEnum[ModuleEnum["MIN"] = 0] = "MIN";
         ModuleEnum[ModuleEnum["SYSTEM"] = 0] = "SYSTEM";
         ModuleEnum[ModuleEnum["CUSTOM"] = 1] = "CUSTOM";
         ModuleEnum[ModuleEnum["TIMELINE"] = 2] = "TIMELINE";
@@ -1413,48 +1428,48 @@ var suncore;
     })(MsgQIdEnum = suncore.MsgQIdEnum || (suncore.MsgQIdEnum = {}));
     var MsgQModEnum;
     (function (MsgQModEnum) {
-        MsgQModEnum[MsgQModEnum["NIL"] = -1] = "NIL";
-        MsgQModEnum[MsgQModEnum["KAL"] = 0] = "KAL";
+        MsgQModEnum[MsgQModEnum["E_NIL"] = -1] = "E_NIL";
+        MsgQModEnum[MsgQModEnum["E_KAL"] = 0] = "E_KAL";
         MsgQModEnum[MsgQModEnum["MMI"] = 1] = "MMI";
         MsgQModEnum[MsgQModEnum["L4C"] = 2] = "L4C";
         MsgQModEnum[MsgQModEnum["CUI"] = 3] = "CUI";
         MsgQModEnum[MsgQModEnum["GUI"] = 4] = "GUI";
         MsgQModEnum[MsgQModEnum["NSL"] = 5] = "NSL";
-        MsgQModEnum[MsgQModEnum["ANY"] = 6] = "ANY";
+        MsgQModEnum[MsgQModEnum["E_ANY"] = 6] = "E_ANY";
     })(MsgQModEnum = suncore.MsgQModEnum || (suncore.MsgQModEnum = {}));
     var AbstractTask = (function (_super) {
         __extends(AbstractTask, _super);
         function AbstractTask() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$done = false;
-            _this.$running = false;
+            _this.$var_done = false;
+            _this.$var_running = false;
             return _this;
         }
         AbstractTask.prototype.cancel = function () {
         };
         Object.defineProperty(AbstractTask.prototype, "done", {
             get: function () {
-                return this.$done;
+                return this.$var_done;
             },
             set: function (yes) {
-                if (this.$done !== yes) {
-                    this.$done = yes;
+                if (this.$var_done !== yes) {
+                    this.$var_done = yes;
                     if (yes === true) {
                         this.cancel();
                     }
                 }
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(AbstractTask.prototype, "running", {
             get: function () {
-                return this.$running;
+                return this.$var_running;
             },
             set: function (yes) {
-                this.$running = yes;
+                this.$var_running = yes;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return AbstractTask;
@@ -1464,30 +1479,30 @@ var suncore;
         __extends(BaseService, _super);
         function BaseService() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$running = false;
+            _this.$var_running = false;
             return _this;
         }
         BaseService.prototype.run = function () {
-            if (this.$running === true) {
+            if (this.$var_running === true) {
                 suncom.Logger.warn(suncom.DebugMode.ANY, "\u670D\u52A1[" + suncom.Common.getQualifiedClassName(this) + "]\u5DF1\u8FD0\u884C");
                 return;
             }
-            this.$running = true;
+            this.$var_running = true;
             this.$onRun();
         };
         BaseService.prototype.stop = function () {
-            if (this.$running === false) {
+            if (this.$var_running === false) {
                 suncom.Logger.warn(suncom.DebugMode.ANY, "\u670D\u52A1[" + suncom.Common.getQualifiedClassName(this) + "]\u672A\u8FD0\u884C");
                 return;
             }
-            this.$running = false;
+            this.$var_running = false;
             this.$onStop();
         };
         Object.defineProperty(BaseService.prototype, "running", {
             get: function () {
-                return this.$running;
+                return this.$var_running;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return BaseService;
@@ -1496,10 +1511,10 @@ var suncore;
     var Engine = (function (_super) {
         __extends(Engine, _super);
         function Engine() {
-            var _this = _super.call(this, MsgQModEnum.KAL) || this;
+            var _this = _super.call(this, MsgQModEnum.E_KAL) || this;
             _this.$delta = 0;
             _this.$runTime = 0;
-            _this.$localTime = new Date().valueOf();
+            _this.$localTime = Date.now();
             Laya.timer.frameLoop(1, _this, _this.$onFrameLoop);
             return _this;
         }
@@ -1512,7 +1527,7 @@ var suncore;
         };
         Engine.prototype.$onFrameLoop = function () {
             var oldTime = this.$localTime;
-            this.$localTime = new Date().valueOf();
+            this.$localTime = Date.now();
             this.$delta = this.$localTime - oldTime;
             if (this.$delta > 0) {
                 this.$runTime += this.$delta;
@@ -1545,10 +1560,32 @@ var suncore;
         return Engine;
     }(puremvc.Notifier));
     suncore.Engine = Engine;
+    var Message = (function () {
+        function Message() {
+            this.mod = ModuleEnum.SYSTEM;
+            this.priority = MessagePriorityEnum.PRIORITY_0;
+            this.weights = 0;
+            this.task = null;
+            this.groupId = 0;
+            this.args = null;
+            this.method = null;
+            this.caller = null;
+            this.timeout = 0;
+        }
+        Message.prototype.recover = function () {
+            this.task = null;
+            this.args = null;
+            this.method = null;
+            this.caller = null;
+            suncom.Pool.recover("suncore.Message", this);
+        };
+        return Message;
+    }());
+    suncore.Message = Message;
     var MessageManager = (function () {
         function MessageManager() {
             this.$queues = [];
-            for (var mod = ModuleEnum.MIN; mod < ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < ModuleEnum.MAX; mod++) {
                 this.$queues[mod] = new MessageQueue(mod);
             }
         }
@@ -1556,14 +1593,14 @@ var suncore;
             this.$queues[message.mod].putMessage(message);
         };
         MessageManager.prototype.dealMessage = function () {
-            for (var mod = ModuleEnum.MIN; mod < ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < ModuleEnum.MAX; mod++) {
                 if (System.isModulePaused(mod) === false) {
                     this.$queues[mod].dealMessage();
                 }
             }
         };
         MessageManager.prototype.classifyMessages0 = function () {
-            for (var mod = ModuleEnum.MIN; mod < ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < ModuleEnum.MAX; mod++) {
                 if (System.isModuleStopped(mod) === false) {
                     this.$queues[mod].classifyMessages0();
                 }
@@ -1583,18 +1620,38 @@ var suncore;
             this.$tasks = [];
             this.$queues = [];
             this.$messages0 = [];
+            this.$canceled = false;
+            this.$weights = 0;
             this.$mod = mod;
-            for (var priority = MessagePriorityEnum.MIN; priority < MessagePriorityEnum.MAX; priority++) {
+            for (var priority = 0; priority < MessagePriorityEnum.E_MAX; priority++) {
                 this.$queues[priority] = [];
             }
         }
         MessageQueue.prototype.putMessage = function (message) {
             this.$messages0.push(message);
+            if (message.priority === MessagePriorityEnum.PRIORITY_PROMISE) {
+                this.$initPromiseWeights(message);
+            }
+        };
+        MessageQueue.prototype.$initPromiseWeights = function (message) {
+            var promises = this.$queues[MessagePriorityEnum.PRIORITY_PROMISE];
+            if (promises.length === 0) {
+                message.weights = this.$weights;
+            }
+            else {
+                var promise = promises[0];
+                if (promise.task.running === false) {
+                    message.weights = this.$weights;
+                }
+                else {
+                    message.weights = this.$weights = promises[0].weights + 1;
+                }
+            }
         };
         MessageQueue.prototype.dealMessage = function () {
             var dealCount = 0;
             var remainCount = 0;
-            for (var priority = MessagePriorityEnum.MIN; priority < MessagePriorityEnum.MAX; priority++) {
+            for (var priority = 0; priority < MessagePriorityEnum.E_MAX; priority++) {
                 var queue = void 0;
                 if (priority === MessagePriorityEnum.PRIORITY_TASK) {
                     queue = this.$tasks;
@@ -1609,7 +1666,7 @@ var suncore;
                     for (var id = this.$tasks.length - 1; id > -1; id--) {
                         var tasks = this.$tasks[id];
                         if (tasks.length > 0 && this.$dealTaskMessage(tasks[0]) === true) {
-                            tasks.shift();
+                            tasks.shift().recover();
                             dealCount++;
                         }
                         if (tasks.length > 1) {
@@ -1620,11 +1677,23 @@ var suncore;
                         }
                     }
                 }
+                else if (priority === MessagePriorityEnum.PRIORITY_PROMISE) {
+                    while (queue.length > 0) {
+                        dealCount++;
+                        var promise = queue[0];
+                        if (this.$dealTaskMessage(promise) === false) {
+                            break;
+                        }
+                        queue.shift().recover();
+                        if (this.$weights > promise.weights) {
+                            break;
+                        }
+                    }
+                }
                 else if (priority === MessagePriorityEnum.PRIORITY_TRIGGER) {
-                    var out = { canceled: false };
-                    while (queue.length > 0 && this.$dealTriggerMessage(queue[0], out) === true) {
-                        queue.shift();
-                        if (out.canceled === false) {
+                    while (queue.length > 0 && this.$dealTriggerMessage(queue[0]) === true) {
+                        queue.shift().recover();
+                        if (this.$canceled === false) {
                             dealCount++;
                         }
                     }
@@ -1633,9 +1702,11 @@ var suncore;
                     var okCount = 0;
                     var totalCount = this.$getDealCountByPriority(priority);
                     for (; queue.length > 0 && (totalCount === 0 || okCount < totalCount); okCount++) {
-                        if (this.$dealCustomMessage(queue.shift()) === false) {
+                        var message = queue.shift();
+                        if (this.$dealCustomMessage(message) === false) {
                             okCount--;
                         }
+                        message.recover();
                     }
                     dealCount += okCount;
                 }
@@ -1644,8 +1715,10 @@ var suncore;
             if (remainCount === 0 && dealCount === 0 && this.$messages0.length === 0) {
                 var queue = this.$queues[MessagePriorityEnum.PRIORITY_LAZY];
                 if (queue.length > 0) {
-                    this.$dealCustomMessage(queue.shift());
+                    var message = queue.shift();
+                    this.$dealCustomMessage(message);
                     dealCount++;
+                    message.recover();
                 }
             }
         };
@@ -1659,15 +1732,15 @@ var suncore;
             }
             return task.done === true;
         };
-        MessageQueue.prototype.$dealTriggerMessage = function (message, out) {
+        MessageQueue.prototype.$dealTriggerMessage = function (message) {
             if (message.timeout > System.getModuleTimestamp(this.$mod)) {
                 return false;
             }
-            out.canceled = message.handler.run() === false;
+            this.$canceled = message.method.apply(message.caller, message.args) === false;
             return true;
         };
         MessageQueue.prototype.$dealCustomMessage = function (message) {
-            return message.handler.run() !== false;
+            return message.method.apply(message.caller, message.args) !== false;
         };
         MessageQueue.prototype.$getDealCountByPriority = function (priority) {
             if (priority === MessagePriorityEnum.PRIORITY_0) {
@@ -1682,7 +1755,7 @@ var suncore;
             if (priority === MessagePriorityEnum.PRIORITY_LOW) {
                 return 1;
             }
-            throw Error("错误的消息优先级");
+            throw Error("\u9519\u8BEF\u7684\u6D88\u606F\u4F18\u5148\u7EA7");
         };
         MessageQueue.prototype.classifyMessages0 = function () {
             while (this.$messages0.length > 0) {
@@ -1693,9 +1766,32 @@ var suncore;
                 else if (message.priority === MessagePriorityEnum.PRIORITY_TRIGGER) {
                     this.$addTriggerMessage(message);
                 }
+                else if (message.priority === MessagePriorityEnum.PRIORITY_PROMISE) {
+                    this.$addPromiseMessage(message);
+                }
                 else {
                     this.$queues[message.priority].push(message);
                 }
+            }
+        };
+        MessageQueue.prototype.$addPromiseMessage = function (message) {
+            var messages = this.$queues[MessagePriorityEnum.PRIORITY_PROMISE];
+            var index = -1;
+            for (var i = 0; i < messages.length; i++) {
+                var promise = messages[i];
+                if (promise.task.running === true) {
+                    continue;
+                }
+                if (promise.weights < message.weights) {
+                    index = i;
+                    break;
+                }
+            }
+            if (index === -1) {
+                messages.push(message);
+            }
+            else {
+                messages.splice(index, 0, message);
             }
         };
         MessageQueue.prototype.$addTriggerMessage = function (message) {
@@ -1755,7 +1851,7 @@ var suncore;
                     this.$cancelMessage(tasks.shift());
                 }
             }
-            for (var priority = MessagePriorityEnum.MIN; priority < MessagePriorityEnum.MAX; priority++) {
+            for (var priority = 0; priority < MessagePriorityEnum.E_MAX; priority++) {
                 var queue = this.$queues[priority];
                 while (queue.length > 0) {
                     this.$cancelMessage(queue.shift());
@@ -1766,13 +1862,16 @@ var suncore;
             if (message.priority === MessagePriorityEnum.PRIORITY_TASK) {
                 message.task.done = true;
             }
+            message.recover();
         };
         MessageQueue.prototype.cancelTaskByGroupId = function (mod, groupId) {
             for (var id = 0; id < this.$tasks.length; id++) {
-                var tasks = this.$tasks[id];
-                if (tasks.length > 0 && tasks[0].groupId === groupId) {
-                    while (tasks.length > 0) {
-                        tasks.shift().task.done = true;
+                var messages = this.$tasks[id];
+                if (messages.length > 0 && messages[0].groupId === groupId) {
+                    while (messages.length > 0) {
+                        var message = messages.shift();
+                        message.task.done = true;
+                        message.recover();
                     }
                     break;
                 }
@@ -1781,6 +1880,27 @@ var suncore;
         return MessageQueue;
     }());
     suncore.MessageQueue = MessageQueue;
+    var MsgQMsg = (function () {
+        function MsgQMsg() {
+            this.dst = MsgQModEnum.E_ANY;
+            this.id = 0;
+            this.data = null;
+            this.batchIndex = 0;
+        }
+        MsgQMsg.prototype.setTo = function (dst, id, data, batchIndex) {
+            this.id = id;
+            this.dst = dst;
+            this.data = data;
+            this.batchIndex = batchIndex;
+            return this;
+        };
+        MsgQMsg.prototype.recover = function () {
+            this.data = null;
+            suncom.Pool.recover("suncore.MsgQMsg", this);
+        };
+        return MsgQMsg;
+    }());
+    suncore.MsgQMsg = MsgQMsg;
     var MsgQService = (function (_super) {
         __extends(MsgQService, _super);
         function MsgQService() {
@@ -1788,13 +1908,13 @@ var suncore;
         }
         MsgQService.prototype.$onRun = function () {
             MsgQ.setModuleActive(this.msgQMod, true);
-            this.facade.registerObserver(NotifyKey.MSG_Q_BUSINESS, this.$onMsgQBusiness, this);
+            this.facade.registerObserver(NotifyKey.MSG_Q_BUSINESS, this.$func_onMsgQBusiness, this);
         };
         MsgQService.prototype.$onStop = function () {
             MsgQ.setModuleActive(this.msgQMod, false);
-            this.facade.removeObserver(NotifyKey.MSG_Q_BUSINESS, this.$onMsgQBusiness, this);
+            this.facade.removeObserver(NotifyKey.MSG_Q_BUSINESS, this.$func_onMsgQBusiness, this);
         };
-        MsgQService.prototype.$onMsgQBusiness = function (mod) {
+        MsgQService.prototype.$func_onMsgQBusiness = function (mod) {
             var msg = null;
             if (mod === void 0 || mod === this.msgQMod) {
                 while (true) {
@@ -1810,9 +1930,10 @@ var suncore;
                     if (msg === null) {
                         break;
                     }
-                    this.$dealMsgQMsg(msg);
+                    this.$dealMsgQMsg(msg.id, msg.data);
+                    msg.recover();
                 }
-                MsgQ.seqId++;
+                MsgQ.batchIndex++;
             }
         };
         return MsgQService;
@@ -1824,7 +1945,9 @@ var suncore;
             return _super !== null && _super.apply(this, arguments) || this;
         }
         PauseTimelineCommand.prototype.execute = function (mod, stop) {
-            suncom.Test.expect(stop).interpret("\u5E94\u5F53\u4E3A\u53C2\u6570 stop \u6307\u5B9A\u6709\u6548\u503C").toBeBoolean();
+            if (stop !== true && stop !== false) {
+                throw Error("\u53C2\u6570stop\u5E94\u5F53\u4E3A\u5E03\u5C14\u503C");
+            }
             if (stop === true) {
                 if (System.isModuleStopped(mod) === true) {
                     suncom.Logger.error(suncom.DebugMode.ANY, "\u6A21\u5757 " + ModuleEnum[mod] + " \u5DF1\u7ECF\u505C\u6B62\uFF01\uFF01\uFF01");
@@ -1850,8 +1973,7 @@ var suncore;
             }
             if (mod === ModuleEnum.SYSTEM) {
                 if (System.isModuleStopped(ModuleEnum.TIMELINE) === false || System.isModuleStopped(ModuleEnum.CUSTOM) === false) {
-                    suncom.Test.notExpected("SYSTEM \u4E0D\u80FD\u505C\u6B62\u56E0\u4E3A CUSTOM \u6216 TIMELINE \u4F9D\u7136\u5728\u8FD0\u884C");
-                    return;
+                    suncom.Logger.error(suncom.DebugMode.ANY, "SYSTEM \u4E0D\u80FD\u505C\u6B62\u56E0\u4E3A CUSTOM \u6216 TIMELINE \u4F9D\u7136\u5728\u8FD0\u884C");
                 }
             }
             M.timerManager.clearTimer(mod);
@@ -1876,13 +1998,19 @@ var suncore;
     suncore.PauseTimelineCommand = PauseTimelineCommand;
     var SimpleTask = (function (_super) {
         __extends(SimpleTask, _super);
-        function SimpleTask(handler) {
+        function SimpleTask(caller, method, args) {
+            if (args === void 0) { args = null; }
             var _this = _super.call(this) || this;
-            _this.$handler = handler;
+            _this.$var_args = null;
+            _this.$var_caller = null;
+            _this.$var_method = null;
+            _this.$var_args = args;
+            _this.$var_caller = caller;
+            _this.$var_method = method;
             return _this;
         }
         SimpleTask.prototype.run = function () {
-            this.$handler.run();
+            this.$var_method.apply(this.$var_caller, this.$var_args);
             return true;
         };
         return SimpleTask;
@@ -1894,7 +2022,9 @@ var suncore;
             return _super !== null && _super.apply(this, arguments) || this;
         }
         StartTimelineCommand.prototype.execute = function (mod, pause) {
-            suncom.Test.expect(pause).interpret("\u5E94\u5F53\u4E3A\u53C2\u6570 pause \u6307\u5B9A\u6709\u6548\u503C").toBeBoolean();
+            if (pause !== true && pause !== false) {
+                throw Error("\u53C2\u6570pause\u5E94\u5F53\u4E3A\u5E03\u5C14\u503C");
+            }
             if (System.isModulePaused(mod) === false) {
                 suncom.Logger.error(suncom.DebugMode.ANY, "\u6A21\u5757 " + ModuleEnum[mod] + " \u5DF1\u7ECF\u542F\u52A8\uFF01\uFF01\uFF01");
                 return;
@@ -1948,34 +2078,53 @@ var suncore;
             get: function () {
                 return this.$paused;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(Timeline.prototype, "stopped", {
             get: function () {
                 return this.$stopped;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return Timeline;
     }());
     suncore.Timeline = Timeline;
+    var Timer = (function () {
+        function Timer() {
+            this.mod = ModuleEnum.SYSTEM;
+            this.active = false;
+            this.delay = 0;
+            this.method = null;
+            this.caller = null;
+            this.args = null;
+            this.real = false;
+            this.count = 0;
+            this.loops = 1;
+            this.timerId = 0;
+            this.timestamp = -1;
+            this.timeout = 0;
+        }
+        Timer.prototype.recover = function () {
+            this.method = null;
+            this.caller = null;
+            this.args = null;
+            suncom.Pool.recover("suncore.Timer", this);
+        };
+        return Timer;
+    }());
+    suncore.Timer = Timer;
     var TimerManager = (function () {
         function TimerManager() {
-            this.$seedId = 0;
             this.$timers = [];
             this.$timerMap = {};
-            for (var mod = ModuleEnum.MIN; mod < ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < ModuleEnum.MAX; mod++) {
                 this.$timers[mod] = [];
             }
         }
-        TimerManager.prototype.$createNewTimerId = function () {
-            this.$seedId++;
-            return this.$seedId;
-        };
         TimerManager.prototype.executeTimer = function () {
-            for (var mod = ModuleEnum.MIN; mod < ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < ModuleEnum.MAX; mod++) {
                 if (System.isModulePaused(mod) === false) {
                     var timers = this.$timers[mod];
                     var timestamp = System.getModuleTimestamp(mod);
@@ -1989,9 +2138,10 @@ var suncore;
                                 timer.count++;
                             }
                             else {
-                                timer.count = suncom.Mathf.min(Math.floor((timestamp - timer.timestamp) / timer.delay), timer.loops);
+                                timer.count = Math.min(Math.floor((timestamp - timer.timestamp) / timer.delay), timer.loops);
                             }
                         }
+                        var recycle = false;
                         if (timer.active === false || (timer.loops > 0 && timer.count >= timer.loops)) {
                             delete this.$timerMap[timer.timerId];
                         }
@@ -2007,6 +2157,7 @@ var suncore;
                                 timer.method.apply(timer.caller, timer.args.concat(timer.count, timer.loops));
                             }
                         }
+                        timer.recover();
                     }
                 }
             }
@@ -2021,7 +2172,7 @@ var suncore;
             if (count === void 0) { count = 0; }
             var currentTimestamp = System.getModuleTimestamp(mod);
             if (timerId === 0) {
-                timerId = this.$createNewTimerId();
+                timerId = suncom.Common.createHashId();
             }
             if (timestamp === -1) {
                 timestamp = currentTimestamp;
@@ -2060,20 +2211,19 @@ var suncore;
                 var offset = delay - firstDelay;
                 timeout = suncom.Mathf.clamp(timeout - offset, currentTimestamp + 1, timeout);
             }
-            var timer = {
-                mod: mod,
-                active: true,
-                delay: delay,
-                method: method,
-                caller: caller,
-                args: args,
-                real: real,
-                count: count,
-                loops: loops,
-                timerId: timerId,
-                timestamp: timestamp,
-                timeout: timeout
-            };
+            var timer = suncom.Pool.getItemByClass("suncore.Timer", Timer);
+            timer.mod = mod;
+            timer.active = true;
+            timer.delay = delay;
+            timer.method = method;
+            timer.caller = caller;
+            timer.args = args;
+            timer.real = real;
+            timer.count = count;
+            timer.loops = loops;
+            timer.timerId = timerId;
+            timer.timestamp = timestamp;
+            timer.timeout = timeout;
             var timers = this.$timers[mod];
             var index = -1;
             var min = 0;
@@ -2117,11 +2267,28 @@ var suncore;
             while (timers.length > 0) {
                 var timer = timers.pop();
                 delete this.$timerMap[timer.timerId];
+                timer.recover();
             }
         };
         return TimerManager;
     }());
     suncore.TimerManager = TimerManager;
+    var PromiseTask = (function (_super) {
+        __extends(PromiseTask, _super);
+        function PromiseTask() {
+            return _super !== null && _super.apply(this, arguments) || this;
+        }
+        PromiseTask.prototype.run = function () {
+            var method = this.$resolve.bind(this);
+            this.$var_method.apply(this.$var_caller, this.$var_args === null ? [method] : [method].concat(this.$var_args));
+            return this.done;
+        };
+        PromiseTask.prototype.$resolve = function () {
+            this.done = true;
+        };
+        return PromiseTask;
+    }(SimpleTask));
+    suncore.PromiseTask = PromiseTask;
     var M;
     (function (M) {
         M.engine = null;
@@ -2134,7 +2301,7 @@ var suncore;
     (function (MsgQ) {
         var $queues = {};
         var $modStats = {};
-        MsgQ.seqId = 1;
+        MsgQ.batchIndex = 1;
         function send(dst, id, data) {
             if (isModuleActive(dst) === false) {
                 suncom.Logger.warn(suncom.DebugMode.ANY, "\u6D88\u606F\u53D1\u9001\u5931\u8D25\uFF0C\u6A21\u5757\u5DF1\u6682\u505C mod:" + MsgQModEnum[dst]);
@@ -2144,27 +2311,22 @@ var suncore;
                 suncom.Logger.warn(suncom.DebugMode.ANY, "\u6D88\u606F\u53D1\u9001\u5931\u8D25\uFF0C\u6D88\u606FID\u975E\u6CD5 mod:" + dst + ", id:" + id);
                 return;
             }
-            var array = $queues[dst] || null;
-            if (array === null) {
+            var array = $queues[dst];
+            if (array === void 0) {
                 array = $queues[dst] = [];
             }
-            var msg = {
-                dst: dst,
-                seqId: MsgQ.seqId,
-                id: id,
-                data: data
-            };
-            array.push(msg);
+            var msg = suncom.Pool.getItemByClass("suncore.MsgQMsg", MsgQMsg);
+            array.push(msg.setTo(dst, id, data, MsgQ.batchIndex));
         }
         MsgQ.send = send;
         function fetch(mod, id) {
-            var queue = $queues[mod] || null;
-            if (queue === null || queue.length === 0) {
+            var queue = $queues[mod];
+            if (queue === void 0 || queue.length === 0) {
                 return null;
             }
             for (var i = 0; i < queue.length; i++) {
                 var msg = queue[i];
-                if (mod === MsgQModEnum.NSL || msg.seqId < MsgQ.seqId) {
+                if (mod === MsgQModEnum.NSL || msg.batchIndex < MsgQ.batchIndex) {
                     if (id === void 0 || msg.id === id) {
                         queue.splice(i, 1);
                         return msg;
@@ -2198,7 +2360,7 @@ var suncore;
                 max = MsgQIdEnum.NSL_MSG_ID_END;
             }
             else {
-                suncom.Test.notExpected("\u672A\u77E5\u7684\u6D88\u606F\u8303\u56F4 mod:" + mod);
+                throw Error("\u672A\u77E5\u7684\u6D88\u606F\u8303\u56F4 mod:" + mod);
             }
             return id >= min && id < max;
         }
@@ -2209,6 +2371,10 @@ var suncore;
         function setModuleActive(mod, active) {
             $modStats[mod] = active;
             if (active === false) {
+                var array = $queues[mod] || [];
+                while (array.length > 0) {
+                    array.pop().recover();
+                }
                 delete $queues[mod];
             }
         }
@@ -2287,20 +2453,20 @@ var suncore;
             }
         }
         System.getModuleTimestamp = getModuleTimestamp;
-        function addTask(mod, groupId, task) {
+        function addTask(mod, task, groupId) {
+            if (groupId === void 0) { groupId = 0; }
             if (System.isModuleStopped(mod) === false) {
                 if (groupId === -1) {
                     groupId = createTaskGroupId();
                 }
                 else if (groupId > 1000) {
-                    suncom.Test.notExpected("\u81EA\u5B9A\u4E49\u7684Task GroupId\u4E0D\u5141\u8BB8\u8D85\u8FC71000");
+                    throw Error("\u81EA\u5B9A\u4E49\u7684Task GroupId\u4E0D\u5141\u8BB8\u8D85\u8FC71000");
                 }
-                var message = {
-                    mod: mod,
-                    task: task,
-                    groupId: groupId,
-                    priority: MessagePriorityEnum.PRIORITY_TASK
-                };
+                var message = suncom.Pool.getItemByClass("suncore.Message", Message);
+                message.mod = mod;
+                message.task = task;
+                message.groupId = groupId;
+                message.priority = MessagePriorityEnum.PRIORITY_TASK;
                 M.messageManager.putMessage(message);
             }
             else {
@@ -2314,14 +2480,16 @@ var suncore;
             M.messageManager.cancelTaskByGroupId(mod, groupId);
         }
         System.cancelTaskByGroupId = cancelTaskByGroupId;
-        function addTrigger(mod, delay, handler) {
+        function addTrigger(mod, delay, caller, method, args) {
+            if (args === void 0) { args = null; }
             if (System.isModuleStopped(mod) === false) {
-                var message = {
-                    mod: mod,
-                    handler: handler,
-                    timeout: System.getModuleTimestamp(mod) + delay,
-                    priority: MessagePriorityEnum.PRIORITY_TRIGGER
-                };
+                var message = suncom.Pool.getItemByClass("suncore.Message", Message);
+                message.mod = mod;
+                message.args = args;
+                message.caller = caller;
+                message.method = method;
+                message.timeout = System.getModuleTimestamp(mod) + delay;
+                message.priority = MessagePriorityEnum.PRIORITY_TRIGGER;
                 M.messageManager.putMessage(message);
             }
             else {
@@ -2329,13 +2497,29 @@ var suncore;
             }
         }
         System.addTrigger = addTrigger;
-        function addMessage(mod, priority, handler) {
+        function addPromise(mod, caller, method, args) {
+            if (args === void 0) { args = null; }
             if (System.isModuleStopped(mod) === false) {
-                var message = {
-                    mod: mod,
-                    handler: handler,
-                    priority: priority
-                };
+                var message = suncom.Pool.getItemByClass("suncore.Message", Message);
+                message.mod = mod;
+                message.task = new PromiseTask(caller, method, args);
+                message.priority = MessagePriorityEnum.PRIORITY_PROMISE;
+                M.messageManager.putMessage(message);
+            }
+            else {
+                suncom.Logger.error(suncom.DebugMode.ANY, "\u5C1D\u8BD5\u6DFB\u52A0Promise\u6D88\u606F\uFF0C\u4F46\u6A21\u5757 " + ModuleEnum[mod] + " \u5DF1\u505C\u6B62\uFF01\uFF01\uFF01");
+            }
+        }
+        System.addPromise = addPromise;
+        function addMessage(mod, priority, caller, method, args) {
+            if (args === void 0) { args = null; }
+            if (System.isModuleStopped(mod) === false) {
+                var message = suncom.Pool.getItemByClass("suncore.Message", Message);
+                message.mod = mod;
+                message.args = args;
+                message.caller = caller;
+                message.method = method;
+                message.priority = priority;
                 M.messageManager.putMessage(message);
             }
             else {
@@ -2905,7 +3089,7 @@ var suntdd;
             _this.$status = TestCaseStatusEnum.PREPARE;
             _this.$caseId = caseId;
             M.currentTestCase = _this;
-            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, suncom.Handler.create(_this, _this.$doPrepare));
+            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, _this, _this.$doPrepare);
             return _this;
         }
         TestCase.prototype.done = function () {
@@ -2969,7 +3153,7 @@ var suntdd;
             get: function () {
                 return this.$status;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return TestCase;
@@ -3323,7 +3507,7 @@ var sunui;
             get: function () {
                 return this.$complete;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return AssetSafetyLoader;
@@ -3359,8 +3543,7 @@ var sunui;
                 }
             }
             this.$applyCloseProps(view, info.props, duration);
-            var handler = suncom.Handler.create(this, this.$onCloseFinish, [view]);
-            suncore.System.addTrigger(info.props.mod, duration, handler);
+            suncore.System.addTrigger(info.props.mod, duration, this, this.$onCloseFinish, [view]);
         };
         ClosePopupCommand.prototype.$onCloseFinish = function (view) {
             M.viewLayer.removeStackInfoByView(view);
@@ -3372,10 +3555,10 @@ var sunui;
         __extends(GUILogicInterceptor, _super);
         function GUILogicInterceptor(command, condition) {
             var _this = _super.call(this) || this;
-            _this.$relieved = false;
-            _this.$command = command;
-            _this.$condition = condition;
-            _this.facade.registerObserver(command, _this.$onCommandCallback, _this, false, suncom.EventPriorityEnum.HIGHEST);
+            _this.$var_relieved = false;
+            _this.$var_command = command;
+            _this.$var_condition = condition;
+            _this.facade.registerObserver(command, _this.$func_onCommandCallback, _this, false, suncom.EventPriorityEnum.HIGHEST);
             return _this;
         }
         GUILogicInterceptor.prototype.destroy = function () {
@@ -3383,20 +3566,20 @@ var sunui;
                 return;
             }
             _super.prototype.destroy.call(this);
-            this.facade.removeObserver(this.$command, this.$onCommandCallback, this);
+            this.facade.removeObserver(this.$var_command, this.$func_onCommandCallback, this);
         };
-        Object.defineProperty(GUILogicInterceptor.prototype, "command", {
+        Object.defineProperty(GUILogicInterceptor.prototype, "var_command", {
             get: function () {
-                return this.$command;
+                return this.$var_command;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
-        Object.defineProperty(GUILogicInterceptor.prototype, "relieved", {
+        Object.defineProperty(GUILogicInterceptor.prototype, "var_relieved", {
             get: function () {
-                return this.$relieved;
+                return this.$var_relieved;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return GUILogicInterceptor;
@@ -3407,14 +3590,14 @@ var sunui;
         function GUILogicRunnable(autoDestroy) {
             if (autoDestroy === void 0) { autoDestroy = true; }
             var _this = _super.call(this) || this;
-            _this.$hashId = suncom.Common.createHashId();
-            _this.$timerId = 0;
-            _this.$commands = [];
-            _this.$autoDestroy = false;
-            _this.$autoDestroy = autoDestroy;
-            _this.facade.registerObserver(NotifyKey.NEXT_LOGIC_COMMAND, _this.$onNextLogicCommand, _this);
-            _this.facade.registerObserver(NotifyKey.DESTROY_LOGIC_RUNNABLE, _this.$onDestroyLogicRunnable, _this);
-            _this.facade.registerObserver(NotifyKey.DESTROY_ALL_LOGIC_RUNNABLE, _this.$onDestroyAllLogicRunnable, _this);
+            _this.$var_hashId = suncom.Common.createHashId();
+            _this.$var_timerId = 0;
+            _this.$var_commands = [];
+            _this.$var_autoDestroy = false;
+            _this.$var_autoDestroy = autoDestroy;
+            _this.facade.registerObserver(NotifyKey.NEXT_LOGIC_COMMAND, _this.$func_onNextLogicCommand, _this);
+            _this.facade.registerObserver(NotifyKey.DESTROY_LOGIC_RUNNABLE, _this.$func_onDestroyLogicRunnable, _this);
+            _this.facade.registerObserver(NotifyKey.DESTROY_ALL_LOGIC_RUNNABLE, _this.$func_onDestroyAllLogicRunnable, _this);
             return _this;
         }
         GUILogicRunnable.prototype.destroy = function () {
@@ -3422,25 +3605,25 @@ var sunui;
                 return;
             }
             _super.prototype.destroy.call(this);
-            this.facade.removeObserver(NotifyKey.NEXT_LOGIC_COMMAND, this.$onNextLogicCommand, this);
-            this.facade.removeObserver(NotifyKey.DESTROY_LOGIC_RUNNABLE, this.$onDestroyAllLogicRunnable, this);
-            this.facade.removeObserver(NotifyKey.DESTROY_ALL_LOGIC_RUNNABLE, this.$onDestroyAllLogicRunnable, this);
-            for (var i = 0; i < this.$commands.length; i++) {
-                this.$commands[i].destroy();
+            this.facade.removeObserver(NotifyKey.NEXT_LOGIC_COMMAND, this.$func_onNextLogicCommand, this);
+            this.facade.removeObserver(NotifyKey.DESTROY_LOGIC_RUNNABLE, this.$func_onDestroyLogicRunnable, this);
+            this.facade.removeObserver(NotifyKey.DESTROY_ALL_LOGIC_RUNNABLE, this.$func_onDestroyAllLogicRunnable, this);
+            for (var i = 0; i < this.$var_commands.length; i++) {
+                this.$var_commands[i].destroy();
             }
         };
-        GUILogicRunnable.prototype.$onDestroyAllLogicRunnable = function () {
+        GUILogicRunnable.prototype.$func_onDestroyAllLogicRunnable = function () {
             this.destroy();
         };
-        GUILogicRunnable.prototype.$onDestroyLogicRunnable = function (hashId) {
-            if (this.$autoDestroy === false && this.$hashId === hashId) {
+        GUILogicRunnable.prototype.$func_onDestroyLogicRunnable = function (hashId) {
+            if (this.$var_autoDestroy === false && this.$var_hashId === hashId) {
                 this.destroy();
             }
         };
-        GUILogicRunnable.prototype.$onNextLogicCommand = function (command) {
+        GUILogicRunnable.prototype.$func_onNextLogicCommand = function (command) {
             var index = -1;
-            for (var i = 0; i < this.$commands.length; i++) {
-                if (this.$commands[i] === command) {
+            for (var i = 0; i < this.$var_commands.length; i++) {
+                if (this.$var_commands[i] === command) {
                     index = i;
                     break;
                 }
@@ -3450,27 +3633,27 @@ var sunui;
             }
             index++;
             this.facade.notifyCancel();
-            if (index < this.$commands.length) {
-                var command_1 = this.$commands[index];
+            if (index < this.$var_commands.length) {
+                var command_1 = this.$var_commands[index];
                 if (command_1.running === false) {
                     command_1.run();
                 }
             }
-            else if (this.$autoDestroy === true) {
+            else if (this.$var_autoDestroy === true) {
                 this.destroy();
             }
         };
         GUILogicRunnable.prototype.$addCommand = function (command, condition, dependencies) {
-            this.$commands.push(new GUILogicCommand(command, condition, dependencies));
-            if (this.$commands[0].running === false) {
-                this.$commands[0].run();
+            this.$var_commands.push(new GUILogicCommand(command, condition, dependencies));
+            if (this.$var_commands[0].running === false) {
+                this.$var_commands[0].run();
             }
         };
         Object.defineProperty(GUILogicRunnable.prototype, "hashId", {
             get: function () {
-                return this.$hashId;
+                return this.$var_hashId;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return GUILogicRunnable;
@@ -3637,85 +3820,84 @@ var sunui;
                 options[_i - 3] = arguments[_i];
             }
             var _this = _super.call(this, suncore.MsgQModEnum.MMI) || this;
-            _this.$options = [];
-            _this.$currentRetries = 0;
-            _this.$retryHandler = null;
-            _this.$retryTimerId = 0;
-            _this.$prompting = false;
+            _this.$var_options = [];
+            _this.$var_currentRetries = 0;
+            _this.$var_retryHandler = null;
+            _this.$var_retryTimerId = 0;
+            _this.$var_prompting = false;
             if ((modOrMethod & RetryMethodEnum.CONFIRM) === RetryMethodEnum.CONFIRM) {
-                _this.$method = RetryMethodEnum.CONFIRM;
+                _this.$var_method = RetryMethodEnum.CONFIRM;
             }
             else if ((modOrMethod & RetryMethodEnum.TERMINATE) === RetryMethodEnum.TERMINATE) {
-                _this.$method = RetryMethodEnum.TERMINATE;
+                _this.$var_method = RetryMethodEnum.TERMINATE;
             }
             else {
-                _this.$method = RetryMethodEnum.AUTO;
+                _this.$var_method = RetryMethodEnum.AUTO;
             }
             var mode = modOrMethod &= 0xF;
             if (modOrMethod === suncore.ModuleEnum.CUSTOM || modOrMethod === suncore.ModuleEnum.TIMELINE) {
-                _this.$mod = modOrMethod;
+                _this.$var_mod = modOrMethod;
             }
             else {
-                _this.$mod = suncore.ModuleEnum.SYSTEM;
+                _this.$var_mod = suncore.ModuleEnum.SYSTEM;
             }
-            _this.$prompt = prompt;
-            _this.$options = options;
-            _this.$confirmHandler = confirmHandler;
+            _this.$var_prompt = prompt;
+            _this.$var_options = options;
+            _this.$var_confirmHandler = confirmHandler;
             return _this;
         }
         Retryer.prototype.run = function (delay, handler, maxRetries) {
             if (maxRetries === void 0) { maxRetries = 2; }
-            if (this.$method === RetryMethodEnum.AUTO || this.$currentRetries < maxRetries) {
-                if (this.$retryTimerId === 0) {
-                    this.$retryHandler = handler;
-                    this.$retryTimerId = suncore.System.addTimer(suncore.ModuleEnum.SYSTEM, delay, this.$onRetryTimer, this);
+            if (this.$var_method === RetryMethodEnum.AUTO || this.$var_currentRetries < maxRetries) {
+                if (this.$var_retryTimerId === 0) {
+                    this.$var_retryHandler = handler;
+                    this.$var_retryTimerId = suncore.System.addTimer(suncore.ModuleEnum.SYSTEM, delay, this.$func_onRetryTimer, this);
                 }
                 else {
                     suncom.Logger.warn(suncom.DebugMode.ANY, "\u5DF1\u5FFD\u7565\u7684\u91CD\u8BD5\u8BF7\u6C42 method:" + suncom.Common.getMethodName(handler.method, handler.caller) + ", caller:" + suncom.Common.getQualifiedClassName(handler.caller));
                 }
             }
             else {
-                if (this.$prompting === false) {
-                    this.$prompting = true;
-                    if (this.$method === RetryMethodEnum.TERMINATE) {
-                        var handler_1 = suncom.Handler.create(this, this.$onConfirmReplied, [ConfirmOptionValueEnum.NO]);
-                        suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler_1);
+                if (this.$var_prompting === false) {
+                    this.$var_prompting = true;
+                    if (this.$var_method === RetryMethodEnum.TERMINATE) {
+                        suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, this, this.$func_onConfirmReplied, [ConfirmOptionValueEnum.NO]);
                     }
                     else {
-                        var handler_2 = suncom.Handler.create(this, this.$onConfirmReplied);
-                        this.facade.sendNotification(NotifyKey.RETRY_CONFIRM, [this.$mod, this.$prompt, this.$options, handler_2]);
+                        var handler_1 = suncom.Handler.create(this, this.$func_onConfirmReplied);
+                        this.facade.sendNotification(NotifyKey.RETRY_CONFIRM, [this.$var_mod, this.$var_prompt, this.$var_options, handler_1]);
                     }
                 }
                 else {
-                    suncom.Logger.warn(suncom.DebugMode.ANY, "\u5DF1\u5FFD\u7565\u7684\u91CD\u8BD5\u7684\u8BE2\u95EE\u8BF7\u6C42 prompt:" + this.$prompt);
+                    suncom.Logger.warn(suncom.DebugMode.ANY, "\u5DF1\u5FFD\u7565\u7684\u91CD\u8BD5\u7684\u8BE2\u95EE\u8BF7\u6C42 prompt:" + this.$var_prompt);
                 }
             }
         };
-        Retryer.prototype.$onConfirmReplied = function (option) {
-            if (this.$prompting === true) {
-                this.$prompting = false;
-                if (this.$confirmHandler !== null) {
-                    this.$confirmHandler.runWith(option);
+        Retryer.prototype.$func_onConfirmReplied = function (option) {
+            if (this.$var_prompting === true) {
+                this.$var_prompting = false;
+                if (this.$var_confirmHandler !== null) {
+                    this.$var_confirmHandler.runWith(option);
                 }
             }
         };
-        Retryer.prototype.$onRetryTimer = function () {
-            this.$retryTimerId = 0;
-            this.$currentRetries++;
-            this.$retryHandler.run();
+        Retryer.prototype.$func_onRetryTimer = function () {
+            this.$var_retryTimerId = 0;
+            this.$var_currentRetries++;
+            this.$var_retryHandler.run();
         };
         Retryer.prototype.cancel = function () {
-            this.$prompting = false;
-            this.$retryTimerId = suncore.System.removeTimer(this.$retryTimerId);
+            this.$var_prompting = false;
+            this.$var_retryTimerId = suncore.System.removeTimer(this.$var_retryTimerId);
         };
         Retryer.prototype.reset = function () {
-            this.$currentRetries = 0;
+            this.$var_currentRetries = 0;
         };
         Object.defineProperty(Retryer.prototype, "currentRetries", {
             get: function () {
-                return this.$currentRetries;
+                return this.$var_currentRetries;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return Retryer;
@@ -3747,14 +3929,14 @@ var sunui;
         }
         SceneLayer.prototype.$enterScene = function (name, data) {
             var info = SceneManager.getConfigByName(name);
-            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, suncom.Handler.create(this, this.$beforeLoadScene, [info, data]));
-            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, suncom.Handler.create(this, this.$loadScene, [info]));
+            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, this, this.$beforeLoadScene, [info, data]);
+            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, this, this.$loadScene, [info]);
         };
         SceneLayer.prototype.$beforeLoadScene = function (info, data) {
             this.$data = data;
             this.$sceneName = info.name;
             this.facade.sendNotification(NotifyKey.BEFORE_LOAD_SCENE);
-            info.iniCls && suncore.System.addTask(suncore.ModuleEnum.SYSTEM, 0, new info.iniCls(info, data));
+            info.iniCls && suncore.System.addTask(suncore.ModuleEnum.SYSTEM, new info.iniCls(info, data));
         };
         SceneLayer.prototype.$loadScene = function (info) {
             this.facade.sendNotification(suncore.NotifyKey.START_TIMELINE, [suncore.ModuleEnum.CUSTOM, true]);
@@ -3771,15 +3953,15 @@ var sunui;
             this.facade.sendNotification(NotifyKey.EXIT_SCENE, this.$sceneName);
             this.facade.sendNotification(suncore.NotifyKey.PAUSE_TIMELINE, [suncore.ModuleEnum.CUSTOM, true]);
             var info = SceneManager.getConfigByName(this.$sceneName);
-            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, suncom.Handler.create(this, this.$onLeaveScene, [info]));
+            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_LAZY, this, this.$onLeaveScene, [info]);
         };
         SceneLayer.prototype.$onLeaveScene = function (info) {
-            info.uniCls && suncore.System.addTask(suncore.ModuleEnum.SYSTEM, 0, new info.uniCls(info, this.$data));
+            info.uniCls && suncore.System.addTask(suncore.ModuleEnum.SYSTEM, new info.uniCls(info, this.$data));
             this.facade.sendNotification(NotifyKey.DESTROY_ALL_LOGIC_RUNNABLE);
             this.facade.sendNotification(NotifyKey.LEAVE_SCENE);
             this.facade.sendNotification(NotifyKey.UNLOAD_SCENE, [this.$scene2d, this.$scene3d]);
             info.scene2d !== null && Resource.clearResByUrl(info.scene2d);
-            suncore.System.addTask(suncore.ModuleEnum.SYSTEM, 0, new suncore.SimpleTask(suncom.Handler.create(this, this.$onExitScene)));
+            suncore.System.addTask(suncore.ModuleEnum.SYSTEM, new suncore.SimpleTask(this, this.$onExitScene));
         };
         SceneLayer.prototype.$onExitScene = function () {
             this.$sceneName = 0;
@@ -3817,21 +3999,21 @@ var sunui;
             get: function () {
                 return this.$scene2d;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(SceneLayer.prototype, "scene3d", {
             get: function () {
                 return this.$scene3d;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(SceneLayer.prototype, "sceneName", {
             get: function () {
                 return this.$ready === false ? 0 : this.$sceneName;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return SceneLayer;
@@ -3910,8 +4092,7 @@ var sunui;
                 }
             }
             this.$applyShowProps(view, props, duration);
-            var handler = suncom.Handler.create(this, this.$onPopupFinish, [view]);
-            suncore.System.addTrigger(info.props.mod, duration, handler);
+            suncore.System.addTrigger(info.props.mod, duration, this, this.$onPopupFinish, [view]);
         };
         ShowPopupCommand.prototype.$onPopupFinish = function (view) {
             var info = M.viewLayer.getInfoByView(view);
@@ -3938,8 +4119,7 @@ var sunui;
                     templet = M.cacheMap[this.$url] = new Laya.Templet();
                     templet.loadAni(this.$url);
                 }
-                var handler = suncom.Handler.create(this, this.$onTempletCreated);
-                suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler);
+                suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, this, this.$onTempletCreated);
                 Resource.lock(this.$url);
             }
             else {
@@ -3970,8 +4150,8 @@ var sunui;
             suncom.Test.expect(urls.length).toBeGreaterThan(0);
             while (urls.length > 0) {
                 var url = urls.shift();
-                var handler_3 = suncom.Handler.create(_this, _this.$onResourceCreated);
-                var loader = new AssetSafetyLoader(url, handler_3);
+                var handler_2 = suncom.Handler.create(_this, _this.$onResourceCreated);
+                var loader = new AssetSafetyLoader(url, handler_2);
                 _this.$loaders.push(loader);
             }
             return _this;
@@ -3981,8 +4161,7 @@ var sunui;
                 return;
             }
             _super.prototype.destroy.call(this);
-            var handler = suncom.Handler.create(this, this.$releaseAllResources);
-            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler);
+            suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, this, this.$releaseAllResources);
         };
         Templet.prototype.$onResourceCreated = function (url) {
             this.$doneList.push(url);
@@ -4004,225 +4183,294 @@ var sunui;
     sunui.Templet = Templet;
     var Tween = (function (_super) {
         __extends(Tween, _super);
-        function Tween(item, mod) {
-            var _this = _super.call(this) || this;
-            _this.$infos = [];
-            _this.$props = null;
-            _this.$mod = mod;
-            _this.$item = item;
+        function Tween() {
+            var _this = _super !== null && _super.apply(this, arguments) || this;
+            _this.$var_hashId = 0;
+            _this.$var_mod = suncore.ModuleEnum.SYSTEM;
+            _this.$var_target = null;
+            _this.$var_props = null;
+            _this.$var_actions = [];
+            _this.$var_usePool = false;
+            return _this;
+        }
+        Tween.prototype.$func_setTo = function (target, mod) {
+            if (this.$var_hashId === -1) {
+                throw Error("Tween\u5DF1\u88AB\u56DE\u6536\uFF01\uFF01\uFF01");
+            }
+            this.$var_mod = mod;
+            this.$var_target = target;
+            this.$var_hashId = suncom.Common.createHashId();
             if (suncore.System.isModuleStopped(mod) === false) {
-                _this.facade.sendNotification(NotifyKey.REGISTER_TWEEN_OBJECT, _this);
+                this.facade.sendNotification(NotifyKey.REGISTER_TWEEN_OBJECT, this);
             }
             else {
                 suncom.Logger.error(suncom.DebugMode.ANY, "\u5C1D\u8BD5\u6DFB\u52A0\u7F13\u52A8\uFF0C\u4F46\u65F6\u95F4\u8F74\u5DF1\u505C\u6B62\uFF0Cmod:" + suncore.ModuleEnum[mod]);
             }
-            return _this;
-        }
+            return this;
+        };
         Tween.prototype.cancel = function () {
-            this.$props = null;
-            this.$infos.length = 0;
+            this.$var_props = null;
+            while (this.$var_actions.length > 0) {
+                this.$var_actions.pop().recover();
+            }
             return this;
         };
-        Tween.prototype.to = function (props, duration, ease, handler) {
+        Tween.prototype.recover = function () {
+            if (suncom.Pool.recover("sunui.Tween", this.cancel()) === true) {
+                this.$var_hashId = -1;
+            }
+        };
+        Tween.prototype.to = function (props, duration, ease, complete) {
             if (ease === void 0) { ease = null; }
-            if (handler === void 0) { handler = null; }
+            if (complete === void 0) { complete = null; }
             var keys = Object.keys(props);
-            var item = this.$props === null ? this.$item : this.$props;
-            this.$createTweenInfo(keys, item, props, duration, ease, props.update || null, handler);
+            var item = this.$var_props === null ? this.$var_target : this.$var_props;
+            this.$func_createTweenInfo(keys, item, props, duration, ease, props.update || null, complete);
             return this;
         };
-        Tween.prototype.from = function (props, duration, ease, handler) {
+        Tween.prototype.from = function (props, duration, ease, complete) {
             if (ease === void 0) { ease = null; }
-            if (handler === void 0) { handler = null; }
+            if (complete === void 0) { complete = null; }
             var keys = Object.keys(props);
-            var item = this.$props === null ? this.$item : this.$props;
-            this.$createTweenInfo(keys, props, item, duration, ease, props.update || null, handler);
+            var item = this.$var_props === null ? this.$var_target : this.$var_props;
+            this.$func_createTweenInfo(keys, props, item, duration, ease, props.update || null, complete);
             return this;
         };
-        Tween.prototype.by = function (props, duration, ease, handler) {
+        Tween.prototype.by = function (props, duration, ease, complete) {
             if (ease === void 0) { ease = null; }
-            if (handler === void 0) { handler = null; }
+            if (complete === void 0) { complete = null; }
             var keys = Object.keys(props);
-            var item = this.$props === null ? this.$item : this.$props;
+            var item = this.$var_props === null ? this.$var_target : this.$var_props;
             for (var i = 0; i < keys.length; i++) {
                 var key = keys[i];
-                if (this.$props === null || this.$props[key] === void 0) {
-                    props[key] += this.$item[key];
+                if (this.$var_props === null || this.$var_props[key] === void 0) {
+                    props[key] += this.$var_target[key];
                 }
                 else {
                     props[key] += item[key];
                 }
             }
-            this.to(props, duration, ease, handler);
+            this.to(props, duration, ease, complete);
             return this;
         };
-        Tween.prototype.$createTweenInfo = function (keys, from, to, duration, ease, update, handler) {
-            this.$props = this.$props || {};
-            var actions = [];
+        Tween.prototype.$func_createTweenInfo = function (keys, from, to, duration, ease, update, complete) {
+            this.$var_props = this.$var_props || {};
+            var action = TweenAction.create();
+            action.ease = ease;
+            action.update = update;
+            action.complete = complete;
+            action.time = suncore.System.getModuleTimestamp(this.$var_mod);
+            action.duration = duration;
+            this.$func_addAction(action);
             for (var i = 0; i < keys.length; i++) {
                 var key = keys[i];
                 if (key === "update") {
                     continue;
                 }
-                var action = {
-                    prop: key,
-                    from: from[key],
-                    to: to[key]
-                };
-                if (action.from === void 0) {
-                    action.from = this.$item[key];
+                var clip = TweenActionClip.create();
+                clip.to = to[key];
+                clip.from = from[key];
+                clip.prop = key;
+                if (clip.from === void 0) {
+                    clip.from = this.$var_target[key];
                 }
-                actions.push(action);
-                this.$props[key] = to[key];
-                if (this.$infos.length === 0) {
-                    this.$item[action.prop] = action.from;
+                this.$var_props[key] = to[key];
+                if (this.$var_actions.length === 0) {
+                    this.$var_target[clip.prop] = clip.from;
                 }
+                action.clips.push(clip);
             }
-            var info = {
-                ease: ease,
-                actions: actions,
-                update: update,
-                handler: handler,
-                time: suncore.System.getModuleTimestamp(this.$mod),
-                duration: duration
-            };
-            this.$infos.push(info);
         };
-        Tween.prototype.wait = function (delay, handler) {
-            if (handler === void 0) { handler = null; }
-            var info = {
-                ease: null,
-                actions: [],
-                update: null,
-                handler: handler,
-                time: suncore.System.getModuleTimestamp(this.$mod),
-                duration: delay
-            };
-            this.$infos.push(info);
+        Tween.prototype.$func_addAction = function (action) {
+            if (this.$var_hashId === -1) {
+                throw Error("Tween\u5DF1\u88AB\u56DE\u6536\uFF01\uFF01\uFF01");
+            }
+            this.$var_actions.push(action);
+        };
+        Tween.prototype.wait = function (delay, complete) {
+            if (complete === void 0) { complete = null; }
+            var action = TweenAction.create();
+            action.complete = complete;
+            action.time = suncore.System.getModuleTimestamp(this.$var_mod);
+            action.duration = delay;
+            this.$func_addAction(action);
             return this;
         };
-        Tween.prototype.doAction = function () {
-            var time = suncore.System.getModuleTimestamp(this.$mod);
-            var info = this.$infos[0];
-            if (this.$item.destroyed === true) {
+        Tween.prototype.func_doAction = function () {
+            var time = suncore.System.getModuleTimestamp(this.$var_mod);
+            var action = this.$var_actions[0];
+            if (this.$var_target.destroyed === true) {
                 this.cancel();
                 return 0;
             }
             var done = false;
             var timeLeft = 0;
-            var duration = time - info.time;
-            if (duration > info.duration) {
+            var duration = time - action.time;
+            if (duration > action.duration) {
                 done = true;
-                timeLeft = duration - info.duration;
-                duration = info.duration;
+                timeLeft = duration - action.duration;
+                duration = action.duration;
             }
-            var func = info.ease || this.$easeNone;
-            for (var i = 0; i < info.actions.length; i++) {
-                var action = info.actions[i];
+            var func = action.ease || this.$func_easeNone;
+            for (var i = 0; i < action.clips.length; i++) {
+                var clip = action.clips[i];
                 if (done === true) {
-                    this.$item[action.prop] = action.to;
+                    this.$var_target[clip.prop] = clip.to;
                 }
                 else {
-                    this.$item[action.prop] = func(duration, action.from, action.to - action.from, info.duration);
+                    this.$var_target[clip.prop] = func(duration, clip.from, clip.to - clip.from, action.duration);
                 }
             }
-            if (info.update !== null) {
-                info.update.run();
+            if (action.update !== null) {
+                action.update.run();
             }
             if (done === false) {
                 return 0;
             }
-            this.$infos.shift();
-            if (this.$infos.length > 0) {
-                this.$infos[0].time = suncore.System.getModuleTimestamp(this.$mod);
+            this.$var_actions.shift().recover();
+            if (this.$var_actions.length > 0) {
+                this.$var_actions[0].time = suncore.System.getModuleTimestamp(this.$var_mod);
             }
-            info.handler !== null && info.handler.run();
+            action.complete !== null && action.complete.run();
             return timeLeft;
         };
-        Tween.prototype.$easeNone = function (t, b, c, d) {
+        Tween.prototype.$func_easeNone = function (t, b, c, d) {
             var a = t / d;
             if (a > 1) {
                 a = 1;
             }
             return a * c + b;
         };
-        Object.defineProperty(Tween.prototype, "mod", {
+        Tween.prototype.usePool = function (value) {
+            this.$var_usePool = value;
+            return this;
+        };
+        Tween.prototype.func_getUsePool = function () {
+            return this.$var_usePool;
+        };
+        Object.defineProperty(Tween.prototype, "var_mod", {
             get: function () {
-                return this.$mod;
+                return this.$var_mod;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
-        Object.defineProperty(Tween.prototype, "canceled", {
+        Object.defineProperty(Tween.prototype, "var_canceled", {
             get: function () {
-                return this.$infos.length === 0;
+                return this.$var_actions.length === 0;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
-        Tween.get = function (item, mod) {
+        Tween.get = function (target, mod) {
             if (mod === void 0) { mod = suncore.ModuleEnum.CUSTOM; }
-            return new Tween(item, mod);
+            var tween = new Tween();
+            tween.$var_hashId = 0;
+            return tween.usePool(true).$func_setTo(target, mod);
         };
         return Tween;
     }(puremvc.Notifier));
     sunui.Tween = Tween;
+    var TweenAction = (function () {
+        function TweenAction() {
+            this.ease = null;
+            this.clips = [];
+            this.update = null;
+            this.complete = null;
+            this.time = 0;
+            this.duration = 0;
+        }
+        TweenAction.prototype.recover = function () {
+            this.ease = null;
+            while (this.clips.length > 0) {
+                this.clips.pop().recover();
+            }
+            this.update = null;
+            this.complete = null;
+            this.time = 0;
+            this.duration = 0;
+            suncom.Pool.recover("sunui.TweenAction", this);
+        };
+        TweenAction.create = function () {
+            return suncom.Pool.getItemByClass("sunui.TweenAction", TweenAction);
+        };
+        return TweenAction;
+    }());
+    sunui.TweenAction = TweenAction;
+    var TweenActionClip = (function () {
+        function TweenActionClip() {
+            this.prop = null;
+            this.from = 0;
+            this.to = 0;
+        }
+        TweenActionClip.prototype.recover = function () {
+            this.prop = null;
+            this.from = 0;
+            this.to = 0;
+            suncom.Pool.recover("sunui.TweenActionClip", this);
+        };
+        TweenActionClip.create = function () {
+            return suncom.Pool.getItemByClass("sunui.TweenActionClip", TweenActionClip);
+        };
+        return TweenActionClip;
+    }());
+    sunui.TweenActionClip = TweenActionClip;
     var TweenService = (function (_super) {
         __extends(TweenService, _super);
         function TweenService() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$tweens = [false];
+            _this.$locker = false;
+            _this.$tweens = [];
             return _this;
         }
         TweenService.prototype.$onRun = function () {
-            this.facade.registerObserver(NotifyKey.REGISTER_TWEEN_OBJECT, this.$onAddTweenObject, this);
             this.facade.registerObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this, false, suncom.EventPriorityEnum.EGL);
             this.facade.registerObserver(suncore.NotifyKey.PAUSE_TIMELINE, this.$onTimelinePause, this, false, suncom.EventPriorityEnum.EGL);
+            this.facade.registerObserver(NotifyKey.REGISTER_TWEEN_OBJECT, this.$onRegisterTweenObject, this);
         };
         TweenService.prototype.$onStop = function () {
-            this.facade.removeObserver(NotifyKey.REGISTER_TWEEN_OBJECT, this.$onAddTweenObject, this);
             this.facade.removeObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this);
             this.facade.removeObserver(suncore.NotifyKey.PAUSE_TIMELINE, this.$onTimelinePause, this);
+            this.facade.removeObserver(NotifyKey.REGISTER_TWEEN_OBJECT, this.$onRegisterTweenObject, this);
         };
         TweenService.prototype.$onEnterFrame = function () {
-            this.$tweens[0] = true;
+            this.$locker = true;
             var tweens = this.$tweens;
-            for (var mod = suncore.ModuleEnum.MIN; mod < suncore.ModuleEnum.MAX; mod++) {
+            for (var mod = 0; mod < suncore.ModuleEnum.MAX; mod++) {
                 if (suncore.System.isModulePaused(mod) === false) {
-                    var length_2 = tweens.length;
-                    for (var i = 0; i < length_2; i++) {
-                        var tween = tweens[i];
-                        if (tween.mod === mod) {
+                    for (var i = 0; i < tweens.length; i++) {
+                        var tween = tweens.length[i];
+                        if (tween.var_mod === mod) {
                             var timeLeft = 1;
-                            while (timeLeft > 0 && tween.canceled === false) {
-                                timeLeft = tween.doAction();
+                            while (timeLeft > 0 && tween.var_canceled === false) {
+                                timeLeft = tween.func_doAction();
                             }
                         }
                     }
                 }
             }
-            for (var i = this.$tweens.length - 1; i > 0; i--) {
+            for (var i = this.$tweens.length - 1; i > -1; i--) {
                 var tween = this.$tweens[i];
-                if (tween.canceled === true) {
-                    tweens.splice(i, 1);
+                if (tween.var_canceled === true && tween.func_getUsePool() === true) {
+                    suncom.Pool.recover("sunui.Tweeen", tweens.splice(i, 1)[0]);
                 }
             }
-            this.$tweens[0] = false;
+            this.$locker = false;
         };
         TweenService.prototype.$onTimelinePause = function (mod, stop) {
             if (stop === true) {
-                for (var i = 1; i < this.$tweens.length; i++) {
+                for (var i = 0; i < this.$tweens.length; i++) {
                     var tween = this.$tweens[i];
-                    if (tween.mod === mod) {
+                    if (tween.var_mod === mod) {
                         tween.cancel();
                     }
                 }
             }
         };
-        TweenService.prototype.$onAddTweenObject = function (tween) {
-            if (this.$tweens[0] === true) {
+        TweenService.prototype.$onRegisterTweenObject = function (tween) {
+            if (this.$locker === true) {
                 this.$tweens = this.$tweens.slice(0);
-                this.$tweens[0] = false;
+                this.$locker = false;
             }
             this.$tweens.push(tween);
         };
@@ -4277,21 +4525,21 @@ var sunui;
             get: function () {
                 return M.sceneLayer.scene2d;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(UIManager.prototype, "scene3d", {
             get: function () {
                 return M.sceneLayer.scene3d;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(UIManager.prototype, "sceneName", {
             get: function () {
                 return M.sceneLayer.sceneName;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         UIManager.$inst = null;
@@ -4493,14 +4741,14 @@ var sunui;
             get: function () {
                 return this.$url;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         Object.defineProperty(UrlSafetyLoader.prototype, "destroyed", {
             get: function () {
                 return this.$destroyed;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return UrlSafetyLoader;
@@ -4510,59 +4758,59 @@ var sunui;
         __extends(ViewContact, _super);
         function ViewContact(popup, caller) {
             var _this = _super.call(this) || this;
-            _this.$closedHandler = null;
-            _this.$removedHandler = null;
-            _this.$popup = popup || null;
-            _this.$caller = caller || null;
+            _this.$var_closedHandler = null;
+            _this.$var_removedHandler = null;
+            _this.$var_popup = popup || null;
+            _this.$var_caller = caller || null;
             if (M.viewLayer.getInfoByView(popup) === null) {
                 throw Error("\u627E\u4E0D\u5230" + popup.name + "\u7684\u5F39\u51FA\u4FE1\u606F\uFF0C\u8BF7\u786E\u8BA4\u5176\u4E3A\u5F39\u51FA\u5BF9\u8C61");
             }
-            _this.facade.registerObserver(NotifyKey.ON_POPUP_CLOSED, _this.$onPopupClosed, _this, false, suncom.EventPriorityEnum.FWL);
-            _this.facade.registerObserver(NotifyKey.ON_POPUP_REMOVED, _this.$onPopupRemoved, _this, false, suncom.EventPriorityEnum.FWL);
+            _this.facade.registerObserver(NotifyKey.ON_POPUP_CLOSED, _this.$func_onPopupClosed, _this, false, suncom.EventPriorityEnum.FWL);
+            _this.facade.registerObserver(NotifyKey.ON_POPUP_REMOVED, _this.$func_onPopupRemoved, _this, false, suncom.EventPriorityEnum.FWL);
             if (M.viewLayer.getInfoByView(caller) !== null) {
-                _this.facade.registerObserver(NotifyKey.ON_POPUP_REMOVED, _this.$onCallerDestroy, _this, false, suncom.EventPriorityEnum.FWL);
+                _this.facade.registerObserver(NotifyKey.ON_POPUP_REMOVED, _this.$func_onCallerDestroy, _this, false, suncom.EventPriorityEnum.FWL);
             }
             else {
-                _this.facade.registerObserver(NotifyKey.ON_CALLER_DESTROYED, _this.$onCallerDestroy, _this, false, suncom.EventPriorityEnum.FWL);
+                _this.facade.registerObserver(NotifyKey.ON_CALLER_DESTROYED, _this.$func_onCallerDestroy, _this, false, suncom.EventPriorityEnum.FWL);
             }
-            _this.facade.registerObserver(NotifyKey.LEAVE_SCENE, _this.$onLeaveScene, _this, false, suncom.EventPriorityEnum.OSL);
+            _this.facade.registerObserver(NotifyKey.LEAVE_SCENE, _this.$func_onLeaveScene, _this, false, suncom.EventPriorityEnum.OSL);
             return _this;
         }
-        ViewContact.prototype.$onLeaveScene = function () {
-            this.facade.removeObserver(NotifyKey.ON_POPUP_CLOSED, this.$onPopupClosed, this);
-            this.facade.removeObserver(NotifyKey.ON_POPUP_REMOVED, this.$onPopupRemoved, this);
-            this.facade.removeObserver(NotifyKey.LEAVE_SCENE, this.$onCallerDestroy, this);
-            this.facade.removeObserver(NotifyKey.ON_POPUP_REMOVED, this.$onCallerDestroy, this);
-            this.facade.removeObserver(NotifyKey.ON_CALLER_DESTROYED, this.$onCallerDestroy, this);
+        ViewContact.prototype.$func_onLeaveScene = function () {
+            this.facade.removeObserver(NotifyKey.ON_POPUP_CLOSED, this.$func_onPopupClosed, this);
+            this.facade.removeObserver(NotifyKey.ON_POPUP_REMOVED, this.$func_onPopupRemoved, this);
+            this.facade.removeObserver(NotifyKey.LEAVE_SCENE, this.$func_onLeaveScene, this);
+            this.facade.removeObserver(NotifyKey.ON_POPUP_REMOVED, this.$func_onCallerDestroy, this);
+            this.facade.removeObserver(NotifyKey.ON_CALLER_DESTROYED, this.$func_onCallerDestroy, this);
         };
-        ViewContact.prototype.$onCallerDestroy = function (caller) {
-            if (caller === this.$caller) {
-                this.$onLeaveScene();
+        ViewContact.prototype.$func_onCallerDestroy = function (caller) {
+            if (caller === this.$var_caller) {
+                this.$func_onLeaveScene();
             }
         };
-        ViewContact.prototype.$onPopupClosed = function (popup) {
-            if (popup === this.$popup) {
-                if (this.$closedHandler !== null) {
-                    this.$closedHandler.run();
-                    this.$closedHandler = null;
+        ViewContact.prototype.$func_onPopupClosed = function (popup) {
+            if (popup === this.$var_popup) {
+                if (this.$var_closedHandler !== null) {
+                    this.$var_closedHandler.run();
+                    this.$var_closedHandler = null;
                 }
             }
         };
-        ViewContact.prototype.$onPopupRemoved = function (popup) {
-            if (popup === this.$popup) {
-                if (this.$removedHandler !== null) {
-                    this.$removedHandler.run();
-                    this.$removedHandler = null;
+        ViewContact.prototype.$func_onPopupRemoved = function (popup) {
+            if (popup === this.$var_popup) {
+                if (this.$var_removedHandler !== null) {
+                    this.$var_removedHandler.run();
+                    this.$var_removedHandler = null;
                 }
-                this.$onCallerDestroy(this.$caller);
+                this.$func_onCallerDestroy(this.$var_caller);
             }
         };
         ViewContact.prototype.onPopupClosed = function (method, caller, args) {
-            if (this.$caller !== caller) {
+            if (this.$var_caller !== caller) {
                 throw Error("caller\u4E0E\u6267\u884C\u8005\u4E0D\u4E00\u81F4");
             }
-            if (this.$closedHandler === null) {
-                this.$closedHandler = suncom.Handler.create(caller, method, args);
+            if (this.$var_closedHandler === null) {
+                this.$var_closedHandler = suncom.Handler.create(caller, method, args);
             }
             else {
                 throw Error("\u91CD\u590D\u6CE8\u518C\u5F39\u6846\u5173\u95ED\u4E8B\u4EF6");
@@ -4570,11 +4818,11 @@ var sunui;
             return this;
         };
         ViewContact.prototype.onPopupRemoved = function (method, caller, args) {
-            if (this.$caller !== caller) {
+            if (this.$var_caller !== caller) {
                 throw Error("caller\u4E0E\u6267\u884C\u8005\u4E0D\u4E00\u81F4");
             }
-            if (this.$removedHandler === null) {
-                this.$removedHandler = suncom.Handler.create(caller, method, args);
+            if (this.$var_removedHandler === null) {
+                this.$var_removedHandler = suncom.Handler.create(caller, method, args);
             }
             else {
                 throw Error("\u91CD\u590D\u6CE8\u518C\u5F39\u6846\u79FB\u9664\u4E8B\u4EF6");
@@ -4588,45 +4836,45 @@ var sunui;
         __extends(ViewFacade, _super);
         function ViewFacade(view, duration) {
             var _this = _super.call(this) || this;
-            _this.$info = null;
-            _this.$view = view;
-            if (_this.info !== null) {
-                _this.$duration = _this.info.duration;
+            _this.$var_info = null;
+            _this.$var_view = view;
+            if (_this.var_info !== null) {
+                _this.$var_duration = _this.var_info.duration;
             }
             else if (duration === void 0) {
-                _this.$duration = 200;
+                _this.$var_duration = 200;
             }
             else {
-                _this.$duration = duration;
+                _this.$var_duration = duration;
             }
             return _this;
         }
         ViewFacade.prototype.popup = function (props) {
             if (props === void 0) { props = {}; }
-            this.facade.sendNotification(NotifyKey.SHOW_POPUP, [this.$view, this.$duration, props]);
+            this.facade.sendNotification(NotifyKey.SHOW_POPUP, [this.$var_view, this.$var_duration, props]);
             return this;
         };
         ViewFacade.prototype.close = function (destroy) {
-            this.facade.sendNotification(NotifyKey.CLOSE_POPUP, [this.$view, this.$duration, destroy]);
+            this.facade.sendNotification(NotifyKey.CLOSE_POPUP, [this.$var_view, this.$var_duration, destroy]);
         };
         Object.defineProperty(ViewFacade.prototype, "cancelAllowed", {
             get: function () {
-                return this.info.cancelAllowed;
+                return this.var_info.cancelAllowed;
             },
             set: function (yes) {
-                this.info.cancelAllowed = yes;
+                this.var_info.cancelAllowed = yes;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
-        Object.defineProperty(ViewFacade.prototype, "info", {
+        Object.defineProperty(ViewFacade.prototype, "var_info", {
             get: function () {
-                if (this.$info === null) {
-                    this.$info = M.viewLayer.getInfoByView(this.$view);
+                if (this.$var_info === null) {
+                    this.$var_info = M.viewLayer.getInfoByView(this.$var_view);
                 }
-                return this.$info;
+                return this.$var_info;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return ViewFacade;
@@ -4850,12 +5098,12 @@ var sunui;
         GUILogicCommand.prototype.run = function () {
             suncom.Test.expect(this.$running).toBe(false);
             for (var i = 0; i < this.$dependencies.length; i++) {
-                this.$dependencies[i].active = true;
+                this.$dependencies[i].var_active = true;
             }
             this.$running = true;
         };
         GUILogicCommand.prototype.$onInterceptorRelieved = function (dependence) {
-            if (this.$relieved === true) {
+            if (this.$var_relieved === true) {
                 return;
             }
             if (this.$dependencies.indexOf(dependence) < 0) {
@@ -4864,44 +5112,43 @@ var sunui;
             this.facade.notifyCancel();
             var relieved = true;
             for (var i = 0; i < this.$dependencies.length; i++) {
-                if (this.$dependencies[i].relieved === false) {
+                if (this.$dependencies[i].var_relieved === false) {
                     relieved = false;
                     break;
                 }
             }
             if (relieved === true) {
-                var handler = suncom.Handler.create(this, this.$onCommandRelieved);
-                suncore.System.addMessage(suncore.ModuleEnum.TIMELINE, suncore.MessagePriorityEnum.PRIORITY_0, handler);
+                suncore.System.addMessage(suncore.ModuleEnum.TIMELINE, suncore.MessagePriorityEnum.PRIORITY_0, this, this.$onCommandRelieved);
             }
         };
         GUILogicCommand.prototype.$onCommandRelieved = function () {
-            if (this.$destroyed === false && this.$relieved === false) {
-                this.$relieved = true;
+            if (this.$destroyed === false && this.$var_relieved === false) {
+                this.$var_relieved = true;
                 this.facade.sendNotification(NotifyKey.NEXT_LOGIC_COMMAND, this, true);
                 for (var i = 0; i < this.$dataList.length; i++) {
-                    this.facade.sendNotification(this.$command, this.$dataList[i]);
+                    this.facade.sendNotification(this.$var_command, this.$dataList[i]);
                 }
             }
         };
-        GUILogicCommand.prototype.$onCommandCallback = function () {
-            if (this.$relieved === true) {
+        GUILogicCommand.prototype.$func_onCommandCallback = function () {
+            if (this.$var_relieved === true) {
                 return;
             }
             var args = [];
             for (var i = 0; i < arguments.length; i++) {
                 args.push(arguments[i]);
             }
-            if (this.$condition.runWith(args) === false) {
+            if (this.$var_condition.runWith(args) === false) {
                 return;
             }
-            this.$relieved = true;
+            this.$var_relieved = true;
             for (var i = 0; i < this.$dependencies.length; i++) {
-                if (this.$dependencies[i].relieved === false) {
-                    this.$relieved = false;
+                if (this.$dependencies[i].var_relieved === false) {
+                    this.$var_relieved = false;
                     break;
                 }
             }
-            if (this.$relieved === false) {
+            if (this.$var_relieved === false) {
                 this.$dataList.push(args);
                 this.facade.notifyCancel();
             }
@@ -4910,7 +5157,7 @@ var sunui;
             get: function () {
                 return this.$running;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return GUILogicCommand;
@@ -4920,29 +5167,29 @@ var sunui;
         __extends(GUILogicDependence, _super);
         function GUILogicDependence() {
             var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$active = false;
+            _this.$var_active = false;
             return _this;
         }
-        GUILogicDependence.prototype.$onCommandCallback = function () {
-            if (this.$active === true && this.$relieved === false) {
+        GUILogicDependence.prototype.$func_onCommandCallback = function () {
+            if (this.$var_active === true && this.$var_relieved === false) {
                 var args = [];
                 for (var i = 0; i < arguments.length; i++) {
                     args.push(arguments[i]);
                 }
-                if (this.$condition.runWith(args) === true) {
-                    this.$relieved = true;
+                if (this.$var_condition.runWith(args) === true) {
+                    this.$var_relieved = true;
                     this.facade.sendNotification(NotifyKey.ON_INTERCEPTOR_RELIEVED, this, true);
                 }
             }
         };
-        Object.defineProperty(GUILogicDependence.prototype, "active", {
+        Object.defineProperty(GUILogicDependence.prototype, "var_active", {
             get: function () {
-                return this.$active;
+                return this.$var_active;
             },
             set: function (value) {
-                this.$active = value;
+                this.$var_active = value;
             },
-            enumerable: true,
+            enumerable: false,
             configurable: true
         });
         return GUILogicDependence;
@@ -5313,2565 +5560,4 @@ var sunui;
     }
     sunui.find = find;
 })(sunui || (sunui = {}));
-var sunnet;
-(function (sunnet) {
-    var HttpResStatus;
-    (function (HttpResStatus) {
-        HttpResStatus[HttpResStatus["OK"] = 0] = "OK";
-        HttpResStatus[HttpResStatus["IO_ERROR"] = -1] = "IO_ERROR";
-        HttpResStatus[HttpResStatus["PARSE_ERROR"] = -2] = "PARSE_ERROR";
-    })(HttpResStatus = sunnet.HttpResStatus || (sunnet.HttpResStatus = {}));
-    var MsgQIdEnum;
-    (function (MsgQIdEnum) {
-        MsgQIdEnum[MsgQIdEnum["NSL_SEND_DATA"] = 1] = "NSL_SEND_DATA";
-        MsgQIdEnum[MsgQIdEnum["NSL_RECV_DATA"] = 2] = "NSL_RECV_DATA";
-    })(MsgQIdEnum = sunnet.MsgQIdEnum || (sunnet.MsgQIdEnum = {}));
-    var NetConnectionStateEnum;
-    (function (NetConnectionStateEnum) {
-        NetConnectionStateEnum[NetConnectionStateEnum["CONNECTED"] = 0] = "CONNECTED";
-        NetConnectionStateEnum[NetConnectionStateEnum["CONNECTING"] = 1] = "CONNECTING";
-        NetConnectionStateEnum[NetConnectionStateEnum["DISCONNECTED"] = 2] = "DISCONNECTED";
-    })(NetConnectionStateEnum = sunnet.NetConnectionStateEnum || (sunnet.NetConnectionStateEnum = {}));
-    var ServerTimeUpdateFlagEnum;
-    (function (ServerTimeUpdateFlagEnum) {
-        ServerTimeUpdateFlagEnum[ServerTimeUpdateFlagEnum["RESET"] = 0] = "RESET";
-        ServerTimeUpdateFlagEnum[ServerTimeUpdateFlagEnum["UPDATE"] = 1] = "UPDATE";
-    })(ServerTimeUpdateFlagEnum = sunnet.ServerTimeUpdateFlagEnum || (sunnet.ServerTimeUpdateFlagEnum = {}));
-    var VirtualNetworkLevelEnum;
-    (function (VirtualNetworkLevelEnum) {
-        VirtualNetworkLevelEnum[VirtualNetworkLevelEnum["NONE"] = 0] = "NONE";
-        VirtualNetworkLevelEnum[VirtualNetworkLevelEnum["GOOD"] = 1] = "GOOD";
-        VirtualNetworkLevelEnum[VirtualNetworkLevelEnum["BAD"] = 2] = "BAD";
-        VirtualNetworkLevelEnum[VirtualNetworkLevelEnum["UNSTABLE"] = 3] = "UNSTABLE";
-    })(VirtualNetworkLevelEnum = sunnet.VirtualNetworkLevelEnum || (sunnet.VirtualNetworkLevelEnum = {}));
-    var NetConnection = (function (_super) {
-        __extends(NetConnection, _super);
-        function NetConnection(name) {
-            var _this = _super.call(this, suncore.MsgQModEnum.NSL) || this;
-            _this.$hashId = 0;
-            _this.$socket = null;
-            _this.$pipeline = null;
-            _this.$state = NetConnectionStateEnum.DISCONNECTED;
-            _this.$closedByError = false;
-            _this.$ping = 0;
-            _this.$latency = 0;
-            _this.$srvTime = 0;
-            _this.$clientTime = 0;
-            _this.$dispatcher = new suncom.EventSystem();
-            _this.$name = name;
-            _this.$pipeline = new NetConnectionPipeline(_this);
-            M.connetionMap[name] = _this;
-            _this.facade.registerObserver(suntdd.NotifyKey.GET_WEBSOCKET_INFO, _this.$onGetWebSocketInfo, _this);
-            _this.facade.registerObserver(suntdd.NotifyKey.TEST_WEBSOCKET_STATE, _this.$onTestWebSocketState, _this);
-            _this.facade.registerObserver(suntdd.NotifyKey.TEST_WEBSOCKET_PROTOCAL, _this.$onTestWebSocketPacket, _this);
-            return _this;
-        }
-        NetConnection.prototype.$onGetWebSocketInfo = function (out) {
-            var connection = M.connetionMap[out.name] || null;
-            if (connection === null) {
-                return;
-            }
-            if (connection.state === NetConnectionStateEnum.CONNECTED) {
-                out.state = suntdd.MSWSConnectionStateEnum.CONNECTED;
-            }
-            else if (connection.state === NetConnectionStateEnum.CONNECTING) {
-                out.state = suntdd.MSWSConnectionStateEnum.CONNECTING;
-            }
-            else {
-                out.state = suntdd.MSWSConnectionStateEnum.DISCONNECTED;
-            }
-        };
-        NetConnection.prototype.$onTestWebSocketState = function (state) {
-            this.testChangeState(state);
-        };
-        NetConnection.prototype.$onTestWebSocketPacket = function (name, data) {
-            this.testProtocal(name, data);
-        };
-        NetConnection.prototype.connect = function (ip, port, byDog) {
-            var byError = byDog === false ? false : this.$closedByError;
-            this.close(byError);
-            this.$ip = ip;
-            this.$port = port;
-            this.$state = NetConnectionStateEnum.CONNECTING;
-            this.$socket = new Laya.Socket();
-            this.$socket.endian = Laya.Byte.LITTLE_ENDIAN;
-            this.$socket.on(Laya.Event.OPEN, this, this.$onOpen);
-            this.$socket.on(Laya.Event.CLOSE, this, this.$onClose);
-            this.$socket.on(Laya.Event.ERROR, this, this.$onError);
-            this.$socket.on(Laya.Event.MESSAGE, this, this.$onMessage);
-            this.$hashId = suncom.Common.createHashId();
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-            }
-            else {
-                this.$socket.connectByUrl("ws://" + ip + ":" + port);
-            }
-            if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "Netconnection=> \u8BF7\u6C42\u8FDE\u63A5 ws://" + this.$ip + ":" + this.$port);
-            }
-            this.addEventListener(EventKey.CLOSE_CONNECT_BY_VIRTUAL, this.$onError, this);
-            this.facade.sendNotification(NotifyKey.SOCKET_STATE_CHANGE, [this.$name, this.$state, false]);
-        };
-        NetConnection.prototype.close = function (byError) {
-            if (byError === void 0) { byError = false; }
-            if (byError === false) {
-                this.$closedByError = false;
-            }
-            else if (this.$state === NetConnectionStateEnum.CONNECTED) {
-                this.$closedByError = true;
-                this.dispatchEvent(EventKey.CLEAR_REQUEST_DATA);
-            }
-            if (this.$socket !== null) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "Netconnection=> \u5173\u95ED\u8FDE\u63A5 ws://" + this.$ip + ":" + this.$port);
-                }
-                this.$socket.off(Laya.Event.OPEN, this, this.$onOpen);
-                this.$socket.off(Laya.Event.CLOSE, this, this.$onClose);
-                this.$socket.off(Laya.Event.ERROR, this, this.$onError);
-                this.$socket.off(Laya.Event.MESSAGE, this, this.$onMessage);
-                this.$socket.close();
-                this.$socket = null;
-                this.$hashId = 0;
-            }
-            if (this.$state !== NetConnectionStateEnum.DISCONNECTED) {
-                this.dispatchEvent(EventKey.SOCKET_DISCONNECTED, byError);
-            }
-            if (byError === false) {
-                this.dispatchEvent(EventKey.KILL_WATCH_DOG);
-            }
-            if (this.$state !== NetConnectionStateEnum.DISCONNECTED) {
-                this.$state = NetConnectionStateEnum.DISCONNECTED;
-                this.facade.sendNotification(NotifyKey.SOCKET_STATE_CHANGE, [this.$name, this.$state, byError]);
-            }
-        };
-        NetConnection.prototype.send = function (bytes) {
-            if (this.$state === NetConnectionStateEnum.CONNECTED) {
-                this.$socket.send(bytes);
-            }
-            else {
-                suncom.Logger.error(suncom.DebugMode.ANY, "NetConnection=> 网络未连接，发送数据失败！！！");
-            }
-        };
-        NetConnection.prototype.sendBytes = function (cmd, bytes, ip, port) {
-            if (bytes === void 0) { bytes = null; }
-            if (ip === void 0) { ip = null; }
-            if (port === void 0) { port = 0; }
-            this.$pipeline.send(cmd, bytes, ip, port);
-        };
-        NetConnection.prototype.flush = function () {
-            this.$socket.flush();
-        };
-        NetConnection.prototype.testChangeState = function (state) {
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-                var handler = suncom.Handler.create(this, this.$onTestChangeState, [this.$hashId, state]);
-                suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler);
-            }
-        };
-        NetConnection.prototype.$onTestChangeState = function (hashId, state) {
-            if (this.$hashId === hashId) {
-                if (state === suntdd.MSWSStateEnum.CONNECTED) {
-                    this.$onOpen();
-                }
-                else if (state === suntdd.MSWSStateEnum.CLOSE) {
-                    this.$onClose();
-                }
-                else if (state === suntdd.MSWSStateEnum.ERROR) {
-                    this.$onError();
-                }
-            }
-        };
-        NetConnection.prototype.testPacket = function (cmd) {
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-                var handler = suncom.Handler.create(this, this.$onTestPacket, [this.$hashId, cmd]);
-                suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler);
-            }
-        };
-        NetConnection.prototype.$onTestPacket = function (hashId, cmd) {
-            if (this.$hashId === hashId) {
-                var protocal = ProtobufManager.getInstance().getProtocalByCommand(cmd);
-                this.facade.sendNotification(suntdd.NotifyKey.TEST_WEBSOCKET_SEND_DATA, protocal && protocal.Name);
-            }
-        };
-        NetConnection.prototype.testProtocal = function (name, data) {
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-                var handler = suncom.Handler.create(this, this.$onTestProtocal, [this.$hashId, name, data]);
-                suncore.System.addMessage(suncore.ModuleEnum.SYSTEM, suncore.MessagePriorityEnum.PRIORITY_0, handler);
-            }
-        };
-        NetConnection.prototype.$onTestProtocal = function (hashId, name, data) {
-            if (this.$hashId === hashId) {
-                var protocal = ProtobufManager.getInstance().getProtocalByName(name);
-                this.$pipeline.recv(protocal.Id, 0, null, data);
-            }
-        };
-        NetConnection.prototype.logMsgIsSent = function (cmd, bytes, ip, port) {
-            var protocal = ProtobufManager.getInstance().getProtocalByCommand(cmd);
-            var data = protocal === null ? null : ProtobufManager.getInstance().decode("msg." + protocal.Name, bytes);
-            if (cmd === Config.HEARTBEAT_REQUEST_COMMAND) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "\u53D1\u9001\u5FC3\u8DF3 name:" + protocal.Name + ", data:" + JSON.stringify(data));
-                }
-            }
-            else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "\u53D1\u9001\u6D88\u606F name:" + protocal.Name + ", data:" + JSON.stringify(data));
-            }
-        };
-        NetConnection.prototype.dispatchCancel = function () {
-            this.$dispatcher.dispatchCancel();
-        };
-        NetConnection.prototype.dispatchEvent = function (type, args, cancelable) {
-            this.$dispatcher.dispatchEvent(type, args, cancelable);
-        };
-        NetConnection.prototype.addEventListener = function (type, method, caller, receiveOnce, priority) {
-            this.$dispatcher.addEventListener(type, method, caller, receiveOnce, priority);
-        };
-        NetConnection.prototype.removeEventListener = function (type, method, caller) {
-            this.$dispatcher.removeEventListener(type, method, caller);
-        };
-        NetConnection.prototype.$onOpen = function () {
-            this.$state = NetConnectionStateEnum.CONNECTED;
-            if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "Netconnection=> 网络连接成功！");
-            }
-            this.dispatchEvent(EventKey.SOCKET_CONNECTED);
-            this.dispatchEvent(EventKey.CACHE_SEND_BYTES, false);
-            this.dispatchEvent(EventKey.FLUSH_CACHED_BYTES);
-            this.$closedByError = false;
-            this.facade.sendNotification(NotifyKey.SOCKET_STATE_CHANGE, [this.$name, this.$state, false]);
-        };
-        NetConnection.prototype.$onClose = function () {
-            if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "Netconnection=> 连接异常关闭！");
-            }
-            this.close(true);
-        };
-        NetConnection.prototype.$onError = function () {
-            if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "Netconnection=> 连接异常断开！");
-            }
-            this.close(true);
-        };
-        NetConnection.prototype.$onMessage = function (event) {
-            this.$pipeline.recv(0, 0, null, void 0);
-        };
-        Object.defineProperty(NetConnection.prototype, "name", {
-            get: function () {
-                return this.$name || null;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "ip", {
-            get: function () {
-                return this.$ip || null;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "port", {
-            get: function () {
-                return this.$port || 0;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "state", {
-            get: function () {
-                return this.$state;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "input", {
-            get: function () {
-                if (this.$socket === null) {
-                    return null;
-                }
-                else {
-                    return this.$socket.input || null;
-                }
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "output", {
-            get: function () {
-                if (this.$socket === null) {
-                    return null;
-                }
-                else {
-                    return this.$socket.output || null;
-                }
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "ping", {
-            get: function () {
-                return this.$ping;
-            },
-            set: function (value) {
-                this.$ping = value;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "latency", {
-            get: function () {
-                return this.$latency;
-            },
-            set: function (value) {
-                this.$latency = value;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "srvTime", {
-            get: function () {
-                return this.$srvTime;
-            },
-            set: function (value) {
-                this.$srvTime = value;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "clientTime", {
-            get: function () {
-                return this.$clientTime;
-            },
-            set: function (value) {
-                this.$clientTime = value;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(NetConnection.prototype, "pipeline", {
-            get: function () {
-                return this.$pipeline;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return NetConnection;
-    }(puremvc.Notifier));
-    sunnet.NetConnection = NetConnection;
-    var NetConnectionInterceptor = (function (_super) {
-        __extends(NetConnectionInterceptor, _super);
-        function NetConnectionInterceptor(connection) {
-            var _this = _super.call(this, suncore.MsgQModEnum.NSL) || this;
-            _this.$connection = null;
-            _this.$connection = connection;
-            _this.$connection.addEventListener(EventKey.SOCKET_CONNECTED, _this.$onConnected, _this, false, suncom.EventPriorityEnum.FWL);
-            _this.$connection.addEventListener(EventKey.SOCKET_DISCONNECTED, _this.$onDisconnected, _this, false, suncom.EventPriorityEnum.FWL);
-            return _this;
-        }
-        NetConnectionInterceptor.prototype.destroy = function () {
-            if (this.$destroyed === true) {
-                return;
-            }
-            _super.prototype.destroy.call(this);
-            this.$connection.removeEventListener(EventKey.SOCKET_CONNECTED, this.$onConnected, this);
-            this.$connection.removeEventListener(EventKey.SOCKET_DISCONNECTED, this.$onDisconnected, this);
-            this.$connection = null;
-        };
-        NetConnectionInterceptor.prototype.$onConnected = function () {
-        };
-        NetConnectionInterceptor.prototype.$onDisconnected = function (byError) {
-        };
-        NetConnectionInterceptor.prototype.send = function (cmd, bytes, ip, port) {
-            return [cmd, bytes, ip, port];
-        };
-        NetConnectionInterceptor.prototype.recv = function (cmd, srvId, bytes, data) {
-            return [cmd, srvId, bytes, data];
-        };
-        return NetConnectionInterceptor;
-    }(puremvc.Notifier));
-    sunnet.NetConnectionInterceptor = NetConnectionInterceptor;
-    var NetConnectionPing = (function (_super) {
-        __extends(NetConnectionPing, _super);
-        function NetConnectionPing() {
-            var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$trackers = [];
-            return _this;
-        }
-        NetConnectionPing.prototype.$onConnected = function () {
-            this.$trackers.length = 0;
-        };
-        NetConnectionPing.prototype.send = function (cmd, bytes, ip, port) {
-            if (this.$isReliableProtocal(cmd) === true) {
-                var tracker = {
-                    rsp: cmd,
-                    rep: this.$getProtocalReplyCommand(cmd),
-                    time: new Date().valueOf()
-                };
-                this.$trackers.push(tracker);
-            }
-            return [cmd, bytes, ip, port];
-        };
-        NetConnectionPing.prototype.recv = function (cmd, srvId, bytes, data) {
-            if (this.$trackers.length > 0) {
-                var tracker = this.$trackers[0];
-                if (tracker.rep === cmd) {
-                    this.$trackers.shift();
-                    this.$connection.ping = new Date().valueOf() - tracker.time;
-                    this.$dealRecvData(cmd, data);
-                }
-            }
-            return [cmd, srvId, bytes, data];
-        };
-        NetConnectionPing.prototype.$updateServerTimestamp = function (time, flag) {
-            var latency = Math.ceil(this.$connection.ping / 2);
-            if (flag === ServerTimeUpdateFlagEnum.RESET || latency < this.$connection.latency) {
-                this.$connection.srvTime = time;
-                this.$connection.latency = latency;
-                this.$connection.clientTime = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            }
-            if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                var srvTime = this.$connection.srvTime + suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM) - this.$connection.clientTime;
-                suncom.Logger.log(suncom.DebugMode.ANY, "\u670D\u52A1\u5668\u65F6\u95F4\uFF1A" + suncom.Common.formatDate("yy-MM-dd hh:mm:ss MS", srvTime) + "\uFF0CPing\uFF1A" + this.$connection.ping + "\uFF0C\u65F6\u95F4\u63A8\u7B97\u5EF6\u5EF6\uFF1A" + this.$connection.latency);
-            }
-        };
-        return NetConnectionPing;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionPing = NetConnectionPing;
-    var NetConnectionPipeline = (function (_super) {
-        __extends(NetConnectionPipeline, _super);
-        function NetConnectionPipeline(connection) {
-            var _this = _super.call(this) || this;
-            _this.$items = [];
-            _this.$connection = connection;
-            return _this;
-        }
-        NetConnectionPipeline.prototype.destroy = function () {
-            if (this.$destroyed === true) {
-                return;
-            }
-            _super.prototype.destroy.call(this);
-            while (this.$items.length > 0) {
-                var item = this.$items.shift();
-                item.interceptor.destroy();
-            }
-        };
-        NetConnectionPipeline.prototype.add = function (arg0, arg1) {
-            var item = new NetConnectionPipelineItem();
-            item.type = typeof arg0 === "string" ? arg0 : null;
-            item.interceptor = typeof arg0 !== "string" ? new arg0(this.$connection) : new arg1(this.$connection);
-            this.$items.push(item);
-        };
-        NetConnectionPipeline.prototype.remove = function (cls) {
-            for (var i = 0; i < this.$items.length; i++) {
-                var interceptor = this.$items[i].interceptor;
-                if (interceptor instanceof cls) {
-                    this.$items.splice(i, 1);
-                    interceptor.destroy();
-                    break;
-                }
-            }
-        };
-        NetConnectionPipeline.prototype.recv = function (cmd, srvId, bytes, data) {
-            var params = [cmd, srvId, bytes, data];
-            for (var i = 0; i < this.$items.length; i++) {
-                var item = this.$items[i];
-                if (item.type === "send") {
-                    continue;
-                }
-                var interceptor = item.interceptor;
-                params = interceptor.recv.apply(interceptor, params);
-                if (params === null) {
-                    return;
-                }
-            }
-            if (params[3] === void 0) {
-                suncom.Logger.warn(suncom.DebugMode.ANY, "NetConnectionPipeline=> decode \u610F\u5916\u7684\u6307\u4EE4 cmd:" + params[0].toString() + ", buff:" + (params[1] ? "[Object]" : "null"));
-            }
-        };
-        NetConnectionPipeline.prototype.send = function (cmd, bytes, ip, port) {
-            for (var i = this.$items.length - 1; i > -1; i--) {
-                var item = this.$items[i];
-                if (item.type === "recv") {
-                    continue;
-                }
-                var interceptor = item.interceptor;
-                var res = interceptor.send.call(interceptor, cmd, bytes, ip, port);
-                if (res === null) {
-                    return null;
-                }
-            }
-            return null;
-        };
-        return NetConnectionPipeline;
-    }(puremvc.Notifier));
-    sunnet.NetConnectionPipeline = NetConnectionPipeline;
-    var NetConnectionPipelineItem = (function () {
-        function NetConnectionPipelineItem() {
-        }
-        return NetConnectionPipelineItem;
-    }());
-    sunnet.NetConnectionPipelineItem = NetConnectionPipelineItem;
-    var NetConnectionProtobufDecoder = (function (_super) {
-        __extends(NetConnectionProtobufDecoder, _super);
-        function NetConnectionProtobufDecoder() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        NetConnectionProtobufDecoder.prototype.recv = function (cmd, srvId, bytes, data) {
-            if (data !== void 0) {
-                return [cmd, srvId, bytes, data];
-            }
-            var newData = this.$decode(cmd, bytes);
-            if (newData === null) {
-                return [cmd, srvId, bytes, data];
-            }
-            if (newData === bytes) {
-                throw Error("请勿返回未处理的消息！！！");
-            }
-            var msg = {
-                id: cmd,
-                name: null,
-                data: newData
-            };
-            if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.NONE) {
-                suncore.MsgQ.send(suncore.MsgQModEnum.NSL, MsgQIdEnum.NSL_RECV_DATA, msg);
-            }
-            else {
-                this.$connection.dispatchEvent(EventKey.SOCKET_MESSAGE_DECODED, msg);
-            }
-            return [cmd, srvId, bytes, newData];
-        };
-        return NetConnectionProtobufDecoder;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionProtobufDecoder = NetConnectionProtobufDecoder;
-    var NetConnectionVirtualNetwork = (function (_super) {
-        __extends(NetConnectionVirtualNetwork, _super);
-        function NetConnectionVirtualNetwork() {
-            var _this = _super !== null && _super.apply(this, arguments) || this;
-            _this.$datas = [];
-            _this.$currentSeconds = 0;
-            _this.$isNetworkWaving = false;
-            _this.$lastConnectedTimestamp = 0;
-            _this.$currentConnectionReliableTime = 0;
-            return _this;
-        }
-        NetConnectionVirtualNetwork.prototype.$onConnected = function () {
-            this.$lastConnectedTimestamp = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            this.$currentConnectionReliableTime = this.$getReliableTimeOfConnection() * 1000;
-            this.facade.registerObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this);
-            this.$connection.addEventListener(EventKey.SOCKET_MESSAGE_DECODED, this.$onSocketMessageDecoded, this);
-        };
-        NetConnectionVirtualNetwork.prototype.$onDisconnected = function (byError) {
-            this.$datas.length = 0;
-            this.$currentSeconds = 0;
-            this.facade.removeObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this);
-            this.$connection.removeEventListener(EventKey.SOCKET_MESSAGE_DECODED, this.$onSocketMessageDecoded, this);
-        };
-        NetConnectionVirtualNetwork.prototype.$onEnterFrame = function () {
-            var time = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            if (this.$lastConnectedTimestamp > 0 && time > this.$lastConnectedTimestamp + this.$currentConnectionReliableTime) {
-                this.$connection.dispatchEvent(EventKey.CLOSE_CONNECT_BY_VIRTUAL);
-                return;
-            }
-            var seconds = Math.floor(time / 1000);
-            if (this.$currentSeconds !== seconds) {
-                this.$currentSeconds = seconds;
-                this.$isNetworkWaving = suncom.Mathf.random(0, 100) < this.$getProbabilyOfNetworkWave();
-            }
-            if (this.$datas.length > 0) {
-                var data = this.$datas[0];
-                if (time > data.time + data.delay) {
-                    suncore.MsgQ.send(suncore.MsgQModEnum.NSL, MsgQIdEnum.NSL_RECV_DATA, this.$datas.shift().msg);
-                }
-            }
-        };
-        NetConnectionVirtualNetwork.prototype.$onSocketMessageDecoded = function (msg) {
-            var data = {
-                msg: msg,
-                time: suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM),
-                delay: this.$calculateMessageDelayTime()
-            };
-            this.$datas.push(data);
-        };
-        NetConnectionVirtualNetwork.prototype.$getReliableTimeOfConnection = function () {
-            if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.UNSTABLE) {
-                return suncom.Mathf.random(180, 300);
-            }
-            else {
-                return 1440 * 30;
-            }
-        };
-        NetConnectionVirtualNetwork.prototype.$getProbabilyOfNetworkWave = function () {
-            if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.BAD) {
-                return 10;
-            }
-            else if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.UNSTABLE) {
-                return 25;
-            }
-            else {
-                return 0;
-            }
-        };
-        NetConnectionVirtualNetwork.prototype.$calculateMessageDelayTime = function () {
-            if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.GOOD) {
-                return suncom.Mathf.random(60, 150);
-            }
-            else if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.BAD) {
-                if (this.$isNetworkWaving === false) {
-                    return suncom.Mathf.random(200, 800);
-                }
-                else {
-                    return suncom.Mathf.random(1000, 2000);
-                }
-            }
-            else if (Config.VIRTUAL_NETWORK_LEVEL === VirtualNetworkLevelEnum.UNSTABLE) {
-                if (this.$isNetworkWaving === false) {
-                    return suncom.Mathf.random(1000, 2500);
-                }
-                else {
-                    return suncom.Mathf.random(3000, 8000);
-                }
-            }
-            else {
-                return 0;
-            }
-        };
-        return NetConnectionVirtualNetwork;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionVirtualNetwork = NetConnectionVirtualNetwork;
-    var NetConnectionWatchDog = (function (_super) {
-        __extends(NetConnectionWatchDog, _super);
-        function NetConnectionWatchDog(connection) {
-            var _this = _super.call(this, connection) || this;
-            _this.$retryer = null;
-            _this.$retryer = new sunui.Retryer(sunui.RetryMethodEnum.TERMINATE, suncom.Handler.create(_this, _this.$onConnectFailed, [connection.name]));
-            _this.$connection.addEventListener(EventKey.KILL_WATCH_DOG, _this.$onKillWatchDog, _this);
-            return _this;
-        }
-        NetConnectionWatchDog.prototype.destroy = function () {
-            if (this.$destroyed === true) {
-                return;
-            }
-            this.$connection.removeEventListener(EventKey.KILL_WATCH_DOG, this.$onKillWatchDog, this);
-            _super.prototype.destroy.call(this);
-        };
-        NetConnectionWatchDog.prototype.$onConnected = function () {
-            this.$retryer.cancel();
-            this.$retryer.reset();
-        };
-        NetConnectionWatchDog.prototype.$onDisconnected = function (byError) {
-            if (byError === true) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "NetConnectionWatchDog=> \u7F51\u7EDC\u8FDE\u63A5\u5F02\u5E38\uFF0C" + Config.TCP_RETRY_DELAY + "\u6BEB\u79D2\u540E\u91CD\u8FDE\uFF01");
-                }
-                this.$ip = this.$connection.ip;
-                this.$port = this.$connection.port;
-                this.$retryer.run(Config.TCP_RETRY_DELAY, suncom.Handler.create(this, this.$doConnect), Config.TCP_MAX_RETRIES);
-            }
-        };
-        NetConnectionWatchDog.prototype.$onKillWatchDog = function () {
-            this.$retryer.cancel();
-        };
-        NetConnectionWatchDog.prototype.$doConnect = function () {
-            if (this.$connection.state === NetConnectionStateEnum.DISCONNECTED) {
-                this.$connection.connect(this.$ip, this.$port, true);
-            }
-            else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                suncom.Logger.log(suncom.DebugMode.ANY, "\u68C0\u6D4B\u72D7\u4E0D\u80FD\u6B63\u5E38\u5DE5\u4F5C\uFF0C\u56E0\u4E3A state:" + NetConnectionStateEnum[this.$connection.state]);
-            }
-        };
-        NetConnectionWatchDog.prototype.$onConnectFailed = function (name) {
-            this.$retryer.reset();
-            this.facade.sendNotification(NotifyKey.SOCKET_CONNECT_FAILED, name);
-        };
-        return NetConnectionWatchDog;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionWatchDog = NetConnectionWatchDog;
-    var ProtobufManager = (function () {
-        function ProtobufManager() {
-            this.$proto = null;
-            this.$commands = null;
-            this.$protocals = null;
-        }
-        ProtobufManager.getInstance = function () {
-            return ProtobufManager.instance;
-        };
-        ProtobufManager.prototype.buildProto = function (url) {
-            var root = new Laya.Browser.window.protobuf.Root();
-            var protostr = Laya.loader.getRes(url);
-            Laya.Browser.window.protobuf.parse(protostr, root, { keepCase: true });
-            this.$proto = root;
-        };
-        ProtobufManager.prototype.buildProtocal = function (url) {
-            var json = Laya.loader.getRes(url);
-            this.$commands = Object.keys(json.data);
-            this.$protocals = json.data;
-        };
-        ProtobufManager.prototype.buildProtocalJson = function (json) {
-            this.$commands = Object.keys(json);
-            this.$protocals = json;
-        };
-        ProtobufManager.prototype.getProtocalByCommand = function (cmd) {
-            return this.$protocals[cmd] || null;
-        };
-        ProtobufManager.prototype.getProtocalByName = function (name) {
-            for (var i = 0; i < this.$commands.length; i++) {
-                var command = this.$commands[i];
-                var protocal = this.getProtocalByCommand(command);
-                if (protocal === null) {
-                    continue;
-                }
-                if (protocal.Name === name) {
-                    return protocal;
-                }
-            }
-            return null;
-        };
-        ProtobufManager.prototype.getProtoClass = function (name) {
-            return this.$proto.lookup(name);
-        };
-        ProtobufManager.prototype.getProtoEnum = function (name) {
-            return this.getProtoClass(name).values;
-        };
-        ProtobufManager.prototype.encode = function (name, data) {
-            if (suncom.Global.debugMode & suncom.DebugMode.DEBUG) {
-                if (name === "msg.Common_Heartbeat") {
-                    if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                        suncom.Logger.log(suncom.DebugMode.ANY, "\u6253\u5305\u5FC3\u8DF3\u6210\u529F ==> " + JSON.stringify(data));
-                    }
-                }
-                else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "\u6253\u5305\u6570\u636E\u6210\u529F ==> " + JSON.stringify(data));
-                }
-            }
-            return this.getProtoClass(name).encode(data).finish();
-        };
-        ProtobufManager.prototype.decode = function (name, bytes) {
-            var data = this.getProtoClass(name).decode(bytes);
-            if (suncom.Global.debugMode & suncom.DebugMode.DEBUG) {
-                if (name === "msg.Common_Heartbeat") {
-                    if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                        suncom.Logger.log(suncom.DebugMode.ANY, "\u89E3\u6790\u5FC3\u8DF3\u6210\u529F ==> " + JSON.stringify(data));
-                    }
-                }
-                else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "\u89E3\u6790\u6570\u636E\u6210\u529F ==> " + JSON.stringify(data));
-                }
-            }
-            return data;
-        };
-        ProtobufManager.instance = new ProtobufManager();
-        return ProtobufManager;
-    }());
-    sunnet.ProtobufManager = ProtobufManager;
-    var SequentialSlice = (function (_super) {
-        __extends(SequentialSlice, _super);
-        function SequentialSlice() {
-            var _this = _super.call(this) || this;
-            _this.$hashId = suncom.Common.createHashId();
-            _this.$destroyed = false;
-            _this.facade.registerObserver(suncore.NotifyKey.ENTER_FRAME, _this.$onEnterFrameCB, _this, false, suncom.EventPriorityEnum.FWL);
-            return _this;
-        }
-        SequentialSlice.prototype.release = function () {
-            if (this.$destroyed === true) {
-                return;
-            }
-            this.$destroyed = true;
-            this.facade.removeObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrameCB, this);
-        };
-        SequentialSlice.prototype.$onEnterFrameCB = function () {
-            if (this.$destroyed === false) {
-                this.$onEnterFrame();
-            }
-        };
-        Object.defineProperty(SequentialSlice.prototype, "hashId", {
-            get: function () {
-                return this.$hashId;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return SequentialSlice;
-    }(puremvc.Notifier));
-    sunnet.SequentialSlice = SequentialSlice;
-    var SequentialTimeSlice = (function (_super) {
-        __extends(SequentialTimeSlice, _super);
-        function SequentialTimeSlice(lifeTime, conName) {
-            if (conName === void 0) { conName = "default"; }
-            var _this = _super.call(this) || this;
-            _this.$connection = null;
-            _this.$srvCreateTime = 0;
-            _this.$lifeTime = 0;
-            _this.$pastTime = 0;
-            _this.$killedTime = 0;
-            _this.$timeMultiple = 1;
-            _this.$chaseMultiple = 1;
-            _this.$lifeTime = lifeTime;
-            _this.$connection = M.connetionMap[conName] || null;
-            _this.$srvCreateTime = getCurrentServerTimestamp(conName);
-            return _this;
-        }
-        SequentialTimeSlice.prototype.updateCreateTime = function (createTime, pastTime, chaseMultiple) {
-            if (createTime === void 0) { createTime = 0; }
-            if (pastTime === void 0) { pastTime = 0; }
-            if (chaseMultiple === void 0) { chaseMultiple = 1; }
-            this.$pastTime = pastTime;
-            this.$chaseMultiple = chaseMultiple;
-            this.$srvCreateTime = createTime > 0 ? createTime : this.$srvCreateTime;
-            this.$onEnterFrame();
-        };
-        SequentialTimeSlice.prototype.$onEnterFrame = function () {
-            if (this.$timeMultiple < 0) {
-                suncom.Logger.error(suncom.DebugMode.ANY, "\u5F53\u524D\u65F6\u95F4\u6D41\u901D\u500D\u7387\u4E0D\u5141\u8BB8\u5C0F\u4E8E0");
-                return;
-            }
-            var delta = suncore.System.getDelta() * this.$timeMultiple;
-            if (delta < suncore.System.getDelta()) {
-                this.$killedTime += suncore.System.getDelta() - delta;
-            }
-            if (this.$timeMultiple === 0) {
-                return;
-            }
-            this.$pastTime += delta;
-            var timeDiff = getCurrentServerTimestamp(this.$connection.name) - (this.$srvCreateTime + this.$pastTime + this.$killedTime);
-            if (timeDiff > 0) {
-                delta *= this.$chaseMultiple;
-                if (delta > timeDiff) {
-                    delta = timeDiff;
-                }
-                this.$pastTime += delta;
-            }
-            if (this.$pastTime > this.$lifeTime) {
-                this.$pastTime = this.$lifeTime;
-            }
-            this.$frameLoop();
-            if (this.$pastTime >= this.$lifeTime) {
-                this.$onTimeup();
-            }
-        };
-        Object.defineProperty(SequentialTimeSlice.prototype, "timeLen", {
-            get: function () {
-                return this.$lifeTime;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(SequentialTimeSlice.prototype, "pastTime", {
-            get: function () {
-                return this.$pastTime;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(SequentialTimeSlice.prototype, "timeMultiple", {
-            get: function () {
-                return this.$timeMultiple;
-            },
-            set: function (value) {
-                this.$timeMultiple = value;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return SequentialTimeSlice;
-    }(SequentialSlice));
-    sunnet.SequentialTimeSlice = SequentialTimeSlice;
-    var NetConnectionCreator = (function (_super) {
-        __extends(NetConnectionCreator, _super);
-        function NetConnectionCreator(connection) {
-            var _this = _super.call(this, connection) || this;
-            _this.$datas = [];
-            _this.$cacheSendBytes = false;
-            _this.$connection.addEventListener(EventKey.CACHE_SEND_BYTES, _this.$onCacheSendBytes, _this);
-            _this.$connection.addEventListener(EventKey.FLUSH_CACHED_BYTES, _this.$onFlushCachedBytes, _this);
-            _this.$connection.addEventListener(EventKey.CLEAR_REQUEST_DATA, _this.$onClearRequestData, _this);
-            return _this;
-        }
-        NetConnectionCreator.prototype.destroy = function () {
-            if (this.$destroyed === true) {
-                return;
-            }
-            this.$connection.removeEventListener(EventKey.CACHE_SEND_BYTES, this.$onCacheSendBytes, this);
-            this.$connection.removeEventListener(EventKey.FLUSH_CACHED_BYTES, this.$onFlushCachedBytes, this);
-            this.$connection.removeEventListener(EventKey.CLEAR_REQUEST_DATA, this.$onClearRequestData, this);
-            _super.prototype.destroy.call(this);
-        };
-        NetConnectionCreator.prototype.$onCacheSendBytes = function (yes) {
-            this.$cacheSendBytes = yes;
-        };
-        NetConnectionCreator.prototype.$onFlushCachedBytes = function () {
-            while (this.$datas.length > 0 && this.$connection.state === NetConnectionStateEnum.CONNECTED) {
-                var data = this.$datas.shift();
-                this.$connection.sendBytes(data.cmd, data.bytes, data.ip, data.port);
-            }
-        };
-        NetConnectionCreator.prototype.$onClearRequestData = function () {
-            this.$datas.length = 0;
-        };
-        NetConnectionCreator.prototype.$needCreate = function (ip, port) {
-            if (ip === null || port === 0) {
-                return false;
-            }
-            if (this.$connection.state === NetConnectionStateEnum.DISCONNECTED) {
-                return true;
-            }
-            if (this.$connection.state === NetConnectionStateEnum.CONNECTED) {
-                if (this.$connection.ip !== ip || this.$connection.port !== port) {
-                    return true;
-                }
-            }
-            return false;
-        };
-        NetConnectionCreator.prototype.send = function (cmd, bytes, ip, port) {
-            if (this.$needCreate(ip, port) == true) {
-                this.$connection.connect(ip, port, false);
-                this.$cacheSendBytes = true;
-            }
-            if (this.$connection.state === NetConnectionStateEnum.CONNECTED) {
-                return [cmd, bytes, ip, port];
-            }
-            else if (this.$cacheSendBytes === true) {
-                var data = {
-                    cmd: cmd,
-                    bytes: bytes,
-                    ip: ip,
-                    port: port
-                };
-                this.$datas.push(data);
-            }
-            return null;
-        };
-        return NetConnectionCreator;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionCreator = NetConnectionCreator;
-    var NetConnectionDecoder = (function (_super) {
-        __extends(NetConnectionDecoder, _super);
-        function NetConnectionDecoder() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        NetConnectionDecoder.prototype.recv = function (cmd, srvId, bytes, data) {
-            var done = false;
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-                if (data !== null) {
-                    var protocal = ProtobufManager.getInstance().getProtocalByCommand(cmd);
-                    bytes = ProtobufManager.getInstance().encode("msg." + protocal.Name, data);
-                }
-                done = true;
-                data = void 0;
-            }
-            if (done === false) {
-                var input = this.$connection.input || null;
-                if (input === null) {
-                    suncom.Logger.error(suncom.DebugMode.ANY, "Decoder \u7F51\u7EDC\u5DF1\u65AD\u5F00\uFF01\uFF01\uFF01");
-                    return null;
-                }
-                cmd = input.getUint16();
-                srvId = input.getUint16();
-                var buffer = input.buffer.slice(input.pos);
-                input.pos += buffer.byteLength;
-                done = true;
-                bytes = new Uint8Array(buffer);
-            }
-            return [cmd, srvId, bytes, data];
-        };
-        return NetConnectionDecoder;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionDecoder = NetConnectionDecoder;
-    var NetConnectionEncoder = (function (_super) {
-        __extends(NetConnectionEncoder, _super);
-        function NetConnectionEncoder() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        NetConnectionEncoder.prototype.send = function (cmd, bytes, ip, port) {
-            if (suncom.Global.debugMode & suncom.DebugMode.TDD) {
-                this.$connection.testPacket(cmd);
-                this.$connection.logMsgIsSent(cmd, bytes, ip, port);
-                return null;
-            }
-            var output = this.$connection.output || null;
-            if (output === null) {
-                suncom.Logger.error(suncom.DebugMode.ANY, "Encoder \u7F51\u7EDC\u5DF1\u65AD\u5F00\uFF01\uFF01\uFF01");
-                return null;
-            }
-            output.writeUint16(cmd);
-            output.writeUint16(0);
-            bytes !== null && output.writeArrayBuffer(bytes);
-            this.$connection.flush();
-            this.$connection.logMsgIsSent(cmd, bytes, ip, port);
-            return null;
-        };
-        return NetConnectionEncoder;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionEncoder = NetConnectionEncoder;
-    var NetConnectionHeartbeat = (function (_super) {
-        __extends(NetConnectionHeartbeat, _super);
-        function NetConnectionHeartbeat() {
-            return _super !== null && _super.apply(this, arguments) || this;
-        }
-        NetConnectionHeartbeat.prototype.$onConnected = function () {
-            this.$lastRecvTime = this.$lastSendTime = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            this.facade.registerObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this);
-        };
-        NetConnectionHeartbeat.prototype.$onDisconnected = function () {
-            this.facade.removeObserver(suncore.NotifyKey.ENTER_FRAME, this.$onEnterFrame, this);
-        };
-        NetConnectionHeartbeat.prototype.$onEnterFrame = function () {
-            var timestamp = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            if (this.$lastRecvTime < this.$lastSendTime) {
-                if (timestamp - this.$lastSendTime > Config.HEARTBEAT_TIMEOUT_MILLISECONDS) {
-                    this.$lastRecvTime = this.$lastSendTime;
-                    this.$connection.close(true);
-                }
-            }
-            else if (timestamp - this.$lastSendTime > Config.HEARTBEAT_INTERVAL_MILLISECONDS) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "heartbeat=> current timestamp:" + suncom.Common.formatDate("hh:mm:ss MS", new Date().valueOf()));
-                }
-                var bytes = ProtobufManager.getInstance().encode("msg.Common_Heartbeat", { Cnt: 1 });
-                this.$connection.sendBytes(Config.HEARTBEAT_REQUEST_COMMAND, bytes);
-            }
-        };
-        NetConnectionHeartbeat.prototype.send = function (cmd, bytes, ip, port) {
-            if (Config.HEARTBEAT_FIXED_FREQUENCY === false || cmd === Config.HEARTBEAT_REQUEST_COMMAND) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    if (cmd === Config.HEARTBEAT_REQUEST_COMMAND) {
-                        if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                            suncom.Logger.log(suncom.DebugMode.ANY, "send heartbeat=> current timestamp:" + suncom.Common.formatDate("hh:mm:ss MS", new Date().valueOf()));
-                        }
-                    }
-                    else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                        suncom.Logger.log(suncom.DebugMode.ANY, "send bytes=> current timestamp:" + suncom.Common.formatDate("hh:mm:ss MS", new Date().valueOf()));
-                    }
-                }
-                this.$lastSendTime = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            }
-            return [cmd, bytes, ip, port];
-        };
-        NetConnectionHeartbeat.prototype.recv = function (cmd, srvId, bytes, data) {
-            if (Config.HEARTBEAT_FIXED_FREQUENCY === false || cmd === Config.HEARTBEAT_RESPONSE_COMMAND) {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    if (cmd === Config.HEARTBEAT_RESPONSE_COMMAND) {
-                        if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                            suncom.Logger.log(suncom.DebugMode.ANY, "recv heartbeat=> current timestamp:" + suncom.Common.formatDate("hh:mm:ss MS", new Date().valueOf()));
-                        }
-                    }
-                    else if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                        suncom.Logger.log(suncom.DebugMode.ANY, "recv bytes=> current timestamp:" + suncom.Common.formatDate("hh:mm:ss MS", new Date().valueOf()));
-                    }
-                }
-                this.$lastRecvTime = suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM);
-            }
-            return [cmd, srvId, bytes, data];
-        };
-        return NetConnectionHeartbeat;
-    }(NetConnectionInterceptor));
-    sunnet.NetConnectionHeartbeat = NetConnectionHeartbeat;
-    var Config;
-    (function (Config) {
-        Config.TCP_RETRY_DELAY = 20 * 1000;
-        Config.TCP_MAX_RETRIES = 10;
-        Config.HEARTBEAT_REQUEST_COMMAND = -1;
-        Config.HEARTBEAT_RESPONSE_COMMAND = -1;
-        Config.HEARTBEAT_TIMEOUT_MILLISECONDS = 3000;
-        Config.HEARTBEAT_INTERVAL_MILLISECONDS = 5000;
-        Config.HEARTBEAT_FIXED_FREQUENCY = false;
-        Config.VIRTUAL_NETWORK_LEVEL = VirtualNetworkLevelEnum.NONE;
-    })(Config = sunnet.Config || (sunnet.Config = {}));
-    var EventKey;
-    (function (EventKey) {
-        EventKey.SOCKET_CONNECTED = "sunnet.EventKey.SOCKET_CONNECTED";
-        EventKey.SOCKET_DISCONNECTED = "sunnet.EventKey.SOCKET_DISCONNECTED";
-        EventKey.SOCKET_CONNECTING = "sunnet.EventKey.SOCKET_CONNECTING";
-        EventKey.SOCKET_CONNECT_FAILED = "sunnet.EventKey.SOCKET_CONNECT_FAILED";
-        EventKey.KILL_WATCH_DOG = "sunnet.EventKey.KILL_WATCH_DOG";
-        EventKey.CACHE_SEND_BYTES = "sunnet.EventKey.CACHE_SEND_BYTES";
-        EventKey.FLUSH_CACHED_BYTES = "sunnet.EventKey.FLUSH_CACHED_BYTES";
-        EventKey.CLEAR_REQUEST_DATA = "sunnet.EventKey.CLEAR_REQUEST_DATA";
-        EventKey.SOCKET_MESSAGE_DECODED = "sunnet.EventKey.SOCKET_MESSAGE_DECODED";
-        EventKey.CLOSE_CONNECT_BY_VIRTUAL = "sunnet.EventKey.CLOSE_CONNECT_BY_VIRTUAL";
-    })(EventKey = sunnet.EventKey || (sunnet.EventKey = {}));
-    var M;
-    (function (M) {
-        M.HEAD_LENGTH = 28;
-        M.connetionMap = {};
-    })(M = sunnet.M || (sunnet.M = {}));
-    var MessageNotifier;
-    (function (MessageNotifier) {
-        var $notifier = new suncom.EventSystem();
-        function notify(name, data, cancelable) {
-            if (name === "msg.Common_Heartbeat") {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK_HEARTBEAT) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "响应心跳");
-                }
-            }
-            else {
-                if (suncom.Global.debugMode & suncom.DebugMode.NETWORK) {
-                    suncom.Logger.log(suncom.DebugMode.ANY, "响应消息 name:" + name + ", data:" + JSON.stringify(data));
-                }
-            }
-            $notifier.dispatchEvent(name, data, cancelable);
-        }
-        MessageNotifier.notify = notify;
-        function register(name, method, caller, priority) {
-            $notifier.addEventListener(name, method, caller, false, priority);
-        }
-        MessageNotifier.register = register;
-        function unregister(name, method, caller) {
-            $notifier.removeEventListener(name, method, caller);
-        }
-        MessageNotifier.unregister = unregister;
-    })(MessageNotifier = sunnet.MessageNotifier || (sunnet.MessageNotifier = {}));
-    var NotifyKey;
-    (function (NotifyKey) {
-        NotifyKey.SOCKET_STATE_CHANGE = "sunnet.NotifyKey.SOCKET_STATE_CHANGE";
-        NotifyKey.SOCKET_CONNECT_FAILED = "sunnet.NotifyKey.SOCKET_CONNECT_FAILED";
-        NotifyKey.SEQUENTIAL_SLICE_RELEASED = "sunnet.NotifyKey.SEQUENTIAL_SLICE_RELEASED";
-        NotifyKey.GUI_SEQUENTIAL_NOTIFICATION = "sunnet.NotifyKey.GUI_SEQUENTIAL_NOTIFICATION";
-    })(NotifyKey = sunnet.NotifyKey || (sunnet.NotifyKey = {}));
-    function getCurrentServerTimestamp(connName) {
-        if (connName === void 0) { connName = "default"; }
-        var connection = M.connetionMap[connName] || null;
-        if (connection === null) {
-            return 0;
-        }
-        return connection.srvTime + suncore.System.getModuleTimestamp(suncore.ModuleEnum.SYSTEM) - connection.clientTime;
-    }
-    sunnet.getCurrentServerTimestamp = getCurrentServerTimestamp;
-})(sunnet || (sunnet = {}));
-var world2d;
-(function (world2d) {
-    var ColliderShapEnum2D;
-    (function (ColliderShapEnum2D) {
-        ColliderShapEnum2D[ColliderShapEnum2D["CIRCLE"] = 0] = "CIRCLE";
-        ColliderShapEnum2D[ColliderShapEnum2D["POLYGON"] = 1] = "POLYGON";
-    })(ColliderShapEnum2D = world2d.ColliderShapEnum2D || (world2d.ColliderShapEnum2D = {}));
-    var CollisionLayerEnum;
-    (function (CollisionLayerEnum) {
-        CollisionLayerEnum[CollisionLayerEnum["DEFAULT"] = 1] = "DEFAULT";
-        CollisionLayerEnum[CollisionLayerEnum["FISH"] = 2] = "FISH";
-        CollisionLayerEnum[CollisionLayerEnum["BULLET"] = 4] = "BULLET";
-        CollisionLayerEnum[CollisionLayerEnum["POLYGON"] = 8] = "POLYGON";
-        CollisionLayerEnum[CollisionLayerEnum["CIRCLE"] = 16] = "CIRCLE";
-        CollisionLayerEnum[CollisionLayerEnum["RECTANLE"] = 32] = "RECTANLE";
-        CollisionLayerEnum[CollisionLayerEnum["FISH_2"] = 64] = "FISH_2";
-        CollisionLayerEnum[CollisionLayerEnum["BULLET_2"] = 128] = "BULLET_2";
-    })(CollisionLayerEnum = world2d.CollisionLayerEnum || (world2d.CollisionLayerEnum = {}));
-    var CollisionShapEnum2D;
-    (function (CollisionShapEnum2D) {
-        CollisionShapEnum2D[CollisionShapEnum2D["CIRCLE"] = 0] = "CIRCLE";
-        CollisionShapEnum2D[CollisionShapEnum2D["POLYGON"] = 1] = "POLYGON";
-        CollisionShapEnum2D[CollisionShapEnum2D["RECTANGLE"] = 2] = "RECTANGLE";
-    })(CollisionShapEnum2D = world2d.CollisionShapEnum2D || (world2d.CollisionShapEnum2D = {}));
-    var CollisionType;
-    (function (CollisionType) {
-        CollisionType[CollisionType["COLLISION_ENTER"] = 0] = "COLLISION_ENTER";
-        CollisionType[CollisionType["COLLISION_STAY"] = 1] = "COLLISION_STAY";
-        CollisionType[CollisionType["COLLISION_EXIT"] = 2] = "COLLISION_EXIT";
-    })(CollisionType = world2d.CollisionType || (world2d.CollisionType = {}));
-    var CrossTypeEnum;
-    (function (CrossTypeEnum) {
-        CrossTypeEnum[CrossTypeEnum["NONE"] = 0] = "NONE";
-        CrossTypeEnum[CrossTypeEnum["CROSS"] = 1] = "CROSS";
-        CrossTypeEnum[CrossTypeEnum["CROSS_2"] = 2] = "CROSS_2";
-        CrossTypeEnum[CrossTypeEnum["OVERLAP"] = 3] = "OVERLAP";
-    })(CrossTypeEnum = world2d.CrossTypeEnum || (world2d.CrossTypeEnum = {}));
-    var RaycastTypeEnum;
-    (function (RaycastTypeEnum) {
-        RaycastTypeEnum[RaycastTypeEnum["ANY"] = 0] = "ANY";
-        RaycastTypeEnum[RaycastTypeEnum["CLOSEST"] = 1] = "CLOSEST";
-        RaycastTypeEnum[RaycastTypeEnum["ALL"] = 2] = "ALL";
-        RaycastTypeEnum[RaycastTypeEnum["ALL_CLOSEST"] = 3] = "ALL_CLOSEST";
-    })(RaycastTypeEnum = world2d.RaycastTypeEnum || (world2d.RaycastTypeEnum = {}));
-    var Bounds = (function () {
-        function Bounds() {
-        }
-        Bounds.prototype.updateBounds = function (left, right, top, bottom) {
-            this.left = left;
-            this.right = right;
-            this.top = top;
-            this.bottom = bottom;
-        };
-        return Bounds;
-    }());
-    world2d.Bounds = Bounds;
-    var Collider2D = (function () {
-        function Collider2D(shap) {
-            this.$shap = shap;
-        }
-        Object.defineProperty(Collider2D.prototype, "shap", {
-            get: function () {
-                return this.$shap;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return Collider2D;
-    }());
-    world2d.Collider2D = Collider2D;
-    var ColliderCircle2D = (function (_super) {
-        __extends(ColliderCircle2D, _super);
-        function ColliderCircle2D(radius) {
-            var _this = _super.call(this, ColliderShapEnum2D.CIRCLE) || this;
-            _this.radius = radius;
-            return _this;
-        }
-        ColliderCircle2D.prototype.clone = function () {
-            return new ColliderCircle2D(this.radius);
-        };
-        return ColliderCircle2D;
-    }(Collider2D));
-    world2d.ColliderCircle2D = ColliderCircle2D;
-    var ColliderPolygon2D = (function (_super) {
-        __extends(ColliderPolygon2D, _super);
-        function ColliderPolygon2D(vertexs) {
-            var _this = _super.call(this, ColliderShapEnum2D.POLYGON) || this;
-            _this.vertexs = vertexs;
-            return _this;
-        }
-        ColliderPolygon2D.prototype.clone = function () {
-            var vertexs = [];
-            for (var i = 0; i < this.vertexs.length; i++) {
-                vertexs.push(this.vertexs[i].copy());
-            }
-            return new ColliderPolygon2D(vertexs);
-        };
-        return ColliderPolygon2D;
-    }(Collider2D));
-    world2d.ColliderPolygon2D = ColliderPolygon2D;
-    var Collision2D = (function () {
-        function Collision2D(shap) {
-            this.bounds = new Bounds();
-            this.$shap = shap;
-        }
-        Object.defineProperty(Collision2D.prototype, "shap", {
-            get: function () {
-                return this.$shap;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return Collision2D;
-    }());
-    world2d.Collision2D = Collision2D;
-    var CollisionCircle2D = (function (_super) {
-        __extends(CollisionCircle2D, _super);
-        function CollisionCircle2D(radius) {
-            var _this = _super.call(this, CollisionShapEnum2D.CIRCLE) || this;
-            _this.radius = radius;
-            return _this;
-        }
-        CollisionCircle2D.prototype.updateBounds = function () {
-            this.bounds.updateBounds(this.x - this.radius, this.x + this.radius, this.y - this.radius, this.y + this.radius);
-        };
-        return CollisionCircle2D;
-    }(Collision2D));
-    world2d.CollisionCircle2D = CollisionCircle2D;
-    var CollisionContact2D = (function () {
-        function CollisionContact2D(a, b) {
-            this.useBox2d = false;
-            this.$testAABB = true;
-            this.$touching = false;
-            if (a.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                this.$a = a;
-                this.$b = b;
-                if (b.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    this.$testFunc = this.$c2c;
-                    this.$testAABB = false;
-                }
-                else if (b.collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                    this.$testFunc = this.$c2r;
-                }
-                else {
-                    this.$testFunc = this.$c2p;
-                }
-            }
-            else if (a.collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                if (b.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    this.$a = b;
-                    this.$b = a;
-                    this.$testFunc = this.$c2r;
-                }
-                else if (b.collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                    this.$a = a;
-                    this.$b = b;
-                    this.$testFunc = this.$r2r;
-                    this.$testAABB = false;
-                }
-                else {
-                    this.$a = a;
-                    this.$b = b;
-                    this.$testFunc = this.$r2p;
-                }
-            }
-            else {
-                this.$a = b;
-                this.$b = a;
-                if (b.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    this.$testFunc = this.$c2p;
-                }
-                else if (b.collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                    this.$testFunc = this.$r2p;
-                }
-                else {
-                    this.$testFunc = this.$p2p;
-                }
-            }
-        }
-        CollisionContact2D.prototype.test = function () {
-            var a = this.$a;
-            var b = this.$b;
-            if (a.enabled === false || b.enabled === false) {
-                return;
-            }
-            var x, y;
-            if (a.rigidbody !== null) {
-                x = a;
-                y = b;
-            }
-            else {
-                x = b;
-                y = a;
-            }
-            if (x.rigidbody.target !== null && x.rigidbody.target !== y) {
-                return;
-            }
-            var collide = this.$testAABB === false ? true : CollisionResolution2D.bounds2Bounds(a.collision.bounds, b.collision.bounds);
-            if (collide === true) {
-                collide = this.$testFunc.call(this, a.collision, b.collision);
-            }
-            if (collide === true) {
-                if (this.$touching === false) {
-                    this.$touching = true;
-                    this.doCollide(CollisionType.COLLISION_ENTER);
-                }
-                else {
-                    this.doCollide(CollisionType.COLLISION_STAY);
-                }
-            }
-            else if (this.$touching === true) {
-                this.$touching = false;
-                this.doCollide(CollisionType.COLLISION_EXIT);
-            }
-        };
-        CollisionContact2D.prototype.doCollide = function (type) {
-            var a = this.$a;
-            var b = this.$b;
-            if (type === CollisionType.COLLISION_ENTER) {
-                a.hitNum++;
-                b.hitNum++;
-                a.entity.onCollisionEnter(b.entity);
-                b.entity.onCollisionEnter(a.entity);
-            }
-            else if (type === CollisionType.COLLISION_EXIT) {
-                a.hitNum--;
-                b.hitNum--;
-                a.entity.onCollisionExit(b.entity);
-                b.entity.onCollisionExit(a.entity);
-            }
-            else {
-                a.entity.onCollisionStay(b.entity);
-                b.entity.onCollisionStay(a.entity);
-            }
-        };
-        CollisionContact2D.prototype.$c2c = function (a, b) {
-            return CollisionResolution2D.circle2Circle(a, b);
-        };
-        CollisionContact2D.prototype.$c2r = function (c, r) {
-            return CollisionResolution2D.circle2Polygin(c, r);
-        };
-        CollisionContact2D.prototype.$c2p = function (a, b) {
-            return CollisionResolution2D.circle2Polygin(a, b);
-        };
-        CollisionContact2D.prototype.$r2r = function () {
-            return CollisionResolution2D.bounds2Bounds(this.$a.collision.bounds, this.$b.collision.bounds);
-        };
-        CollisionContact2D.prototype.$r2p = function (r, p) {
-            return CollisionResolution2D.polygon2Vertexs(p, r.vertexs);
-        };
-        CollisionContact2D.prototype.$p2p = function (p1, p2) {
-            return CollisionResolution2D.polygon2Vertexs(p1, p2.vertexs) && CollisionResolution2D.polygon2Vertexs(p2, p1.vertexs);
-        };
-        Object.defineProperty(CollisionContact2D.prototype, "a", {
-            get: function () {
-                return this.$a;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(CollisionContact2D.prototype, "b", {
-            get: function () {
-                return this.$b;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(CollisionContact2D.prototype, "touching", {
-            get: function () {
-                return this.$touching;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return CollisionContact2D;
-    }());
-    world2d.CollisionContact2D = CollisionContact2D;
-    var CollisionPolygon2D = (function (_super) {
-        __extends(CollisionPolygon2D, _super);
-        function CollisionPolygon2D(collider) {
-            var _this = _super.call(this, CollisionShapEnum2D.POLYGON) || this;
-            _this.$tempVertexs = null;
-            _this.vertexs = [];
-            _this.segments = [];
-            for (var i = 0; i < collider.vertexs.length; i++) {
-                var vertex = collider.vertexs[i];
-                _this.vertexs.push(vertex.copy());
-                _this.segments.push(new Segment2D());
-            }
-            return _this;
-        }
-        CollisionPolygon2D.prototype.updateBounds = function () {
-            Helper2D.calculateBoundsForVertexs(this.vertexs, this.bounds);
-        };
-        CollisionPolygon2D.prototype.updateVertexs = function (vertexs) {
-            this.$tempVertexs = vertexs;
-        };
-        CollisionPolygon2D.prototype.prepareVertexs = function () {
-            for (var i = 0; i < this.$tempVertexs.length; i++) {
-                var a = this.vertexs[i];
-                var b = this.$tempVertexs[i];
-                a.assign(b.x, b.y);
-            }
-            this.$tempVertexs = null;
-        };
-        CollisionPolygon2D.prototype.prepareSegments = function () {
-            for (var i = 0; i < this.vertexs.length; i++) {
-                var segment = this.segments[i];
-                segment.a = this.vertexs[i];
-                segment.b = i > 0 ? this.vertexs[i - 1] : this.vertexs[this.vertexs.length - 1];
-                var a = this.vertexs[i];
-                var b = i > 0 ? this.vertexs[i - 1] : this.vertexs[this.vertexs.length - 1];
-                this.segments[i].assign(a, b);
-            }
-        };
-        Object.defineProperty(CollisionPolygon2D.prototype, "modified", {
-            get: function () {
-                return this.$tempVertexs !== null;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return CollisionPolygon2D;
-    }(Collision2D));
-    world2d.CollisionPolygon2D = CollisionPolygon2D;
-    var CollisionRectangle2D = (function (_super) {
-        __extends(CollisionRectangle2D, _super);
-        function CollisionRectangle2D() {
-            var _this = _super.call(this, CollisionShapEnum2D.RECTANGLE) || this;
-            _this.vertexs = [];
-            _this.segments = [];
-            for (var i = 0; i < 4; i++) {
-                _this.vertexs.push(new Vector2D(0, 0));
-                _this.segments.push(new Segment2D());
-            }
-            return _this;
-        }
-        CollisionRectangle2D.prototype.updateBounds = function () {
-            Helper2D.calculateBoundsForVertexs(this.vertexs, this.bounds);
-        };
-        CollisionRectangle2D.prototype.prepareVertexs = function () {
-            this.vertexs[0].assign(this.bounds.left, this.bounds.bottom);
-            this.vertexs[1].assign(this.bounds.right, this.bounds.bottom);
-            this.vertexs[2].assign(this.bounds.right, this.bounds.top);
-            this.vertexs[3].assign(this.bounds.left, this.bounds.top);
-        };
-        CollisionRectangle2D.prototype.prepareSegments = function () {
-            for (var i = 0; i < this.vertexs.length; i++) {
-                var segment = this.segments[i];
-                var a = this.vertexs[i];
-                var b = i > 0 ? this.vertexs[i - 1] : this.vertexs[this.vertexs.length - 1];
-                segment.assign(a, b);
-            }
-        };
-        return CollisionRectangle2D;
-    }(Collision2D));
-    world2d.CollisionRectangle2D = CollisionRectangle2D;
-    var Physics2D = (function () {
-        function Physics2D() {
-        }
-        Physics2D.testPoint = function (p, layers) {
-            if (layers === void 0) { layers = 0; }
-            var transforms = World2D.inst.transforms.slice(0);
-            for (var i = 0; i < transforms.length; i++) {
-                var transform = transforms[i];
-                var collision = transform.collision;
-                if (layers > 0 && (transform.layer & layers) === 0) {
-                    continue;
-                }
-                if (transform.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    if (CollisionResolution2D.pointInCircle(p, collision)) {
-                        return transform;
-                    }
-                }
-                else if (transform.collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                    if (CollisionResolution2D.pointInRectangle(p, transform.collision.bounds)) {
-                        return transform;
-                    }
-                }
-                else {
-                    if (CollisionResolution2D.pointInPolygon(p, transform.collision)) {
-                        return transform;
-                    }
-                }
-            }
-            return null;
-        };
-        Physics2D.raycast = function (origin, direction, maxDistance, layers, type) {
-            if (layers === void 0) { layers = 0; }
-            if (type === void 0) { type = RaycastTypeEnum.CLOSEST; }
-            var destination = direction.copy().normalize().mul(maxDistance).add(origin);
-            world2d.World2D.DEBUG === true && DrawAPI2D.drawLine(origin, destination, "#FF0000");
-            var segment = new Segment2D();
-            segment.assign(origin, destination);
-            var bounds = new Bounds();
-            bounds.updateBounds(suncom.Mathf.min(origin.x, destination.x), suncom.Mathf.max(origin.x, destination.x), suncom.Mathf.min(origin.y, destination.y), suncom.Mathf.max(origin.y, destination.y));
-            var transforms = World2D.inst.transforms;
-            var out = null;
-            var array = [];
-            for (var i = 0; i < transforms.length; i++) {
-                transforms[i].hitNum = 0;
-            }
-            for (var i = 0; i < transforms.length; i++) {
-                var transform = transforms[i];
-                if (layers > 0 && (transform.layer & layers) === 0) {
-                    continue;
-                }
-                if (CollisionResolution2D.bounds2Bounds(bounds, transform.collision.bounds) === false) {
-                    continue;
-                }
-                if (out === null) {
-                    out = {
-                        type: CrossTypeEnum.NONE,
-                        transform: null,
-                        p1: new Vector2D(0, 0),
-                        p2: new Vector2D(0, 0),
-                        normal: null,
-                        distance: 0
-                    };
-                }
-                if (transform.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    CollisionResolution2D.line2Circle(segment, transform.collision, out);
-                }
-                else {
-                    CollisionResolution2D.line2Polygon(segment, transform.collision, type, out);
-                }
-                if (out.type === CrossTypeEnum.NONE) {
-                    continue;
-                }
-                out.transform = transform;
-                transform.hitNum = 1;
-                if (type === RaycastTypeEnum.CLOSEST) {
-                    if (array.length === 1) {
-                        array[0].transform.hitNum = 0;
-                    }
-                    array[0] = out;
-                    bounds.updateBounds(suncom.Mathf.min(origin.x, out.p1.x), suncom.Mathf.max(origin.x, out.p1.x), suncom.Mathf.min(origin.y, out.p1.y), suncom.Mathf.max(origin.y, out.p1.y));
-                }
-                else {
-                    array.push(out);
-                }
-                if (type === RaycastTypeEnum.ANY) {
-                    break;
-                }
-                else if (type === RaycastTypeEnum.CLOSEST || type === RaycastTypeEnum.ALL_CLOSEST) {
-                    out.distance = out.p1.distanceTo(origin);
-                }
-                out = null;
-            }
-            if (type === RaycastTypeEnum.ALL_CLOSEST && array.length > 1) {
-                var newArray = [];
-                while (array.length > 1) {
-                    var res = array[0];
-                    var index = 0;
-                    for (var i = 1; i < array.length; i++) {
-                        var item = array[i];
-                        if (res === null || item.distance < res.distance) {
-                            res = item;
-                            index = i;
-                        }
-                    }
-                    array.splice(index, 1);
-                    newArray.push(res);
-                }
-                newArray.push(array[0]);
-                array = newArray;
-            }
-            return array;
-        };
-        return Physics2D;
-    }());
-    world2d.Physics2D = Physics2D;
-    var Rigidbody2D = (function () {
-        function Rigidbody2D() {
-            this.$torque = 180;
-            this.target = null;
-            this.moveSpeed = 0;
-        }
-        Rigidbody2D.prototype.update = function (delta) {
-            if (this.moveSpeed === 0) {
-                return;
-            }
-            if (this.target !== null && this.target.enabled === false) {
-                this.target = null;
-            }
-            var p = suncom.Pool.getItemByClass("world2d.Vector2D", Vector2D, [0, 0]);
-            if (this.target !== null) {
-                p.assign(this.target.x - this.transform.x, this.target.y - this.transform.y);
-                var rotate2 = p.angle();
-                if (this.$torque === 180) {
-                    this.transform.rotateTo(rotate2);
-                }
-                else {
-                    var min = this.transform.rotation - suncom.Mathf.PI;
-                    var max = this.transform.rotation + suncom.Mathf.PI;
-                    if (rotate2 < min) {
-                        rotate2 += suncom.Mathf.PI2;
-                    }
-                    else if (rotate2 > max) {
-                        rotate2 -= suncom.Mathf.PI2;
-                    }
-                    var rotation = rotate2 - this.transform.rotation;
-                    var torque = suncom.Mathf.clamp(this.$torque * delta * 10, 0, suncom.Mathf.PI);
-                    if (rotation < -torque) {
-                        this.transform.rotateBy(-torque);
-                    }
-                    else if (rotation > torque) {
-                        this.transform.rotateBy(torque);
-                    }
-                    else {
-                        this.transform.rotateBy(rotation);
-                    }
-                }
-            }
-            p.assign(this.moveSpeed, 0).rotate(this.transform.rotation);
-            this.transform.moveBy(p.x * delta, p.y * delta);
-            suncom.Pool.recover("world2d.Vector2D", p);
-        };
-        Object.defineProperty(Rigidbody2D.prototype, "torque", {
-            get: function () {
-                return suncom.Mathf.r2d(this.$torque);
-            },
-            set: function (value) {
-                this.$torque = suncom.Mathf.d2r(value);
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return Rigidbody2D;
-    }());
-    world2d.Rigidbody2D = Rigidbody2D;
-    var Segment2D = (function () {
-        function Segment2D() {
-            this.a = null;
-            this.b = null;
-            this.ab = new Vector2D(0, 0);
-        }
-        Segment2D.prototype.assign = function (a, b) {
-            this.a = a;
-            this.b = b;
-            this.ab.assign(b.x - a.x, b.y - a.y);
-            return this;
-        };
-        return Segment2D;
-    }());
-    world2d.Segment2D = Segment2D;
-    var Transform2D = (function (_super) {
-        __extends(Transform2D, _super);
-        function Transform2D(entity, collider, rigidbody, collision) {
-            var _this = _super.call(this) || this;
-            _this.$x = 0;
-            _this.$y = 0;
-            _this.$scaleTo = 1;
-            _this.$rotateTo = 0;
-            _this.$rotation = 0;
-            _this.$enabled = true;
-            _this.$entity = null;
-            _this.$rigidbody = null;
-            _this.hitNum = 0;
-            _this.$entity = entity;
-            _this.$collider = collider;
-            _this.$rigidbody = rigidbody;
-            _this.$collision = collision;
-            if (rigidbody !== null) {
-                rigidbody.transform = _this;
-            }
-            return _this;
-        }
-        Transform2D.prototype.transform = function (delta) {
-            if (this.$rigidbody !== null) {
-                this.$rigidbody.update(delta);
-            }
-            var needUpdate = this.$needUpdate();
-            var isModifiedByExtern = this.$isModifiedByExtern();
-            if (needUpdate === false && isModifiedByExtern === false) {
-                return;
-            }
-            this.$scale = this.$scaleTo;
-            this.$radian = this.$rotateTo;
-            this.$collision.x = this.$x;
-            this.$collision.y = this.$y;
-            if (isModifiedByExtern === false) {
-                this.$applyScale();
-                this.$applyRotate();
-                this.$applyPosition();
-            }
-            else {
-                var collision = this.$collision;
-                collision.prepareVertexs();
-            }
-            this.$updateCollision();
-        };
-        Transform2D.prototype.moveBy = function (x, y) {
-            this.$x += x;
-            this.$y += y;
-        };
-        Transform2D.prototype.moveTo = function (x, y) {
-            this.$x = x;
-            this.$y = y;
-        };
-        Transform2D.prototype.scaleBy = function (value) {
-            this.$scaleTo *= value;
-        };
-        Transform2D.prototype.scaleTo = function (value) {
-            this.$scaleTo = value;
-        };
-        Transform2D.prototype.rotateBy = function (value) {
-            this.$updateRadian(this.$rotateTo + value);
-        };
-        Transform2D.prototype.rotateTo = function (value) {
-            this.$updateRadian(value);
-        };
-        Transform2D.prototype.$updateRadian = function (radian) {
-            if (radian < 0) {
-                radian %= suncom.Mathf.PI2;
-                radian += suncom.Mathf.PI2;
-            }
-            else if (radian >= suncom.Mathf.PI2) {
-                radian %= suncom.Mathf.PI2;
-            }
-            if (this.$rotateTo !== radian) {
-                this.$rotateTo = radian;
-                this.$rotation = suncom.Mathf.r2d(radian);
-            }
-        };
-        Transform2D.prototype.$updateCollision = function () {
-            this.$collision.updateBounds();
-            if (this.$collision.shap === CollisionShapEnum2D.POLYGON) {
-                var collision = this.$collision;
-                collision.prepareSegments();
-            }
-            else if (this.$collision.shap === CollisionShapEnum2D.RECTANGLE) {
-                var collision = this.$collision;
-                collision.prepareVertexs();
-                collision.prepareSegments();
-            }
-        };
-        Transform2D.prototype.$applyPosition = function () {
-            if (this.$collider.shap !== ColliderShapEnum2D.CIRCLE) {
-                var collision = this.$collision;
-                for (var i = 0; i < collision.vertexs.length; i++) {
-                    var p = collision.vertexs[i];
-                    p.x += this.$x;
-                    p.y += this.$y;
-                }
-            }
-        };
-        Transform2D.prototype.$applyRotate = function () {
-            if (this.$collider.shap === ColliderShapEnum2D.POLYGON) {
-                var collision = this.$collision;
-                for (var i = 0; i < collision.vertexs.length; i++) {
-                    var p = collision.vertexs[i];
-                    p.rotate(this.$radian);
-                }
-            }
-        };
-        Transform2D.prototype.$applyScale = function () {
-            if (this.$collision.shap === CollisionShapEnum2D.CIRCLE) {
-                var collider = this.$collider;
-                var collision = this.$collision;
-                collision.radius = collider.radius * this.$scale;
-            }
-            else {
-                var collider = this.$collider;
-                var collision = this.$collision;
-                for (var i = 0; i < collider.vertexs.length; i++) {
-                    var a = collider.vertexs[i];
-                    var b = collision.vertexs[i];
-                    b.assign(a.x, a.y).mul(this.$scale);
-                }
-            }
-        };
-        Transform2D.prototype.$needUpdate = function () {
-            if (this.$scale !== this.$scaleTo) {
-                return true;
-            }
-            else if (this.$radian !== this.$rotateTo) {
-                return true;
-            }
-            else if (this.$x !== this.$collision.x || this.$y !== this.$collision.y) {
-                return true;
-            }
-            else {
-                return false;
-            }
-        };
-        Transform2D.prototype.$isModifiedByExtern = function () {
-            if (this.$collision.shap === CollisionShapEnum2D.POLYGON) {
-                var collision = this.$collision;
-                return collision.modified;
-            }
-            return false;
-        };
-        Transform2D.prototype.getRotation = function () {
-            return this.$rotation;
-        };
-        Transform2D.prototype.setRotation = function (rotation) {
-            this.rotateTo(suncom.Mathf.d2r(rotation));
-        };
-        Transform2D.prototype.disabled = function () {
-            this.$enabled = false;
-        };
-        Object.defineProperty(Transform2D.prototype, "layer", {
-            get: function () {
-                return this.$layer;
-            },
-            set: function (value) {
-                this.$layer = value;
-                this.dispatchEvent(World2D.TRANSFORM_LAYER_CHANGED, this);
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "x", {
-            get: function () {
-                return this.$x;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "y", {
-            get: function () {
-                return this.$y;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "scale", {
-            get: function () {
-                return this.$scaleTo;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "rotation", {
-            get: function () {
-                return this.$rotateTo;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "enabled", {
-            get: function () {
-                return this.$enabled;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "entity", {
-            get: function () {
-                return this.$entity;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "collider", {
-            get: function () {
-                return this.$collider;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "collision", {
-            get: function () {
-                return this.$collision;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        Object.defineProperty(Transform2D.prototype, "rigidbody", {
-            get: function () {
-                return this.$rigidbody;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        return Transform2D;
-    }(suncom.EventSystem));
-    world2d.Transform2D = Transform2D;
-    var Vector2D = (function () {
-        function Vector2D(x, y) {
-            this.x = x;
-            this.y = y;
-        }
-        Vector2D.prototype.assign = function (x, y) {
-            this.x = x;
-            this.y = y;
-            return this;
-        };
-        Vector2D.prototype.add = function (vec2) {
-            this.x += vec2.x;
-            this.y += vec2.y;
-            return this;
-        };
-        Vector2D.prototype.sub = function (vec2) {
-            this.x -= vec2.x;
-            this.y -= vec2.y;
-            return this;
-        };
-        Vector2D.prototype.mul = function (value) {
-            this.x *= value;
-            this.y *= value;
-            return this;
-        };
-        Vector2D.prototype.dot = function (a) {
-            return this.x * a.x + this.y * a.y;
-        };
-        Vector2D.prototype.cross = function (a) {
-            return this.x * a.y - this.y * a.x;
-        };
-        Vector2D.prototype.negate = function () {
-            this.x = -this.x;
-            this.y = -this.y;
-            return this;
-        };
-        Vector2D.prototype.rotate = function (radian) {
-            var x = this.x;
-            var y = this.y;
-            var cos = Math.cos(radian);
-            var sin = Math.sin(radian);
-            this.x = x * cos - y * sin;
-            this.y = x * sin + y * cos;
-            return this;
-        };
-        Vector2D.prototype.angle = function () {
-            var radian = Math.atan2(this.y, this.x);
-            if (radian < 0) {
-                return radian + 2 * Math.PI;
-            }
-            else {
-                return radian;
-            }
-        };
-        Vector2D.prototype.zero = function () {
-            this.x = this.y = 0;
-            return this;
-        };
-        Vector2D.prototype.normal = function () {
-            return new Vector2D(this.y, -this.x);
-        };
-        Vector2D.prototype.normalize = function () {
-            var length = this.length();
-            if (length < 1e-9) {
-                return this;
-            }
-            this.x /= length;
-            this.y /= length;
-            return this;
-        };
-        Vector2D.prototype.length = function () {
-            return Math.sqrt(this.x * this.x + this.y * this.y);
-        };
-        Vector2D.prototype.lengthSquared = function () {
-            return this.x * this.x + this.y * this.y;
-        };
-        Vector2D.prototype.distanceTo = function (p) {
-            var dx = this.x - p.x;
-            var dy = this.y - p.y;
-            return Math.sqrt(dx * dx + dy * dy);
-        };
-        Vector2D.prototype.distanceToSquared = function (p) {
-            var dx = this.x - p.x;
-            var dy = this.y - p.y;
-            return dx * dx + dy * dy;
-        };
-        Vector2D.prototype.copy = function () {
-            return new Vector2D(this.x, this.y);
-        };
-        Vector2D.prototype.toString = function () {
-            return "{" + this.x + "," + this.y + "}";
-        };
-        Vector2D.add = function (a, b) {
-            return new Vector2D(a.x + b.x, a.y + b.y);
-        };
-        Vector2D.sub = function (a, b) {
-            return new Vector2D(b.x - a.x, b.y - a.y);
-        };
-        Vector2D.normal = function (a, b) {
-            return new Vector2D(b.y - a.y, a.x - b.x);
-        };
-        Vector2D.angle = function (a, b) {
-            var m = a.length();
-            var n = b.length();
-            if (m <= 1e-9 || n < 1e-9) {
-                return 0;
-            }
-            return Math.acos(a.dot(b) / (m * n));
-        };
-        return Vector2D;
-    }());
-    world2d.Vector2D = Vector2D;
-    var World2D = (function () {
-        function World2D(graphics) {
-            this.$detectors = [];
-            this.$contacts = [];
-            this.$transforms = [];
-            World2D.inst = this;
-            DrawAPI2D.graphics = graphics;
-            this.addDetector(CollisionLayerEnum.DEFAULT, CollisionLayerEnum.DEFAULT);
-        }
-        World2D.prototype.update = function (delta) {
-            for (var i = 0; i < this.$transforms.length; i++) {
-                this.$transforms[i].transform(delta);
-            }
-            for (var i = 0; i < this.$contacts.length; i++) {
-                this.$contacts[i].test();
-            }
-            World2D.DEBUG === true && DrawAPI2D.draw(this.$transforms);
-        };
-        World2D.prototype.addTransform = function (transform, layer) {
-            if (layer === void 0) { layer = CollisionLayerEnum.DEFAULT; }
-            transform.layer = layer;
-            transform.addEventListener(World2D.TRANSFORM_LAYER_CHANGED, this.$onTransformLayerChanged, this);
-            for (var i = 0; i < this.$transforms.length; i++) {
-                var transform2 = this.$transforms[i];
-                if (this.$shouldCollide(transform.layer, transform2.layer) === true) {
-                    var contact = new CollisionContact2D(transform, transform2);
-                    this.$contacts.push(contact);
-                }
-            }
-            this.$transforms.push(transform);
-        };
-        World2D.prototype.removeTransform = function (transform) {
-            var index = this.$transforms.indexOf(transform);
-            if (index < 0) {
-                return;
-            }
-            transform.disabled();
-            this.$transforms.splice(index, 1);
-            transform.removeEventListener(World2D.TRANSFORM_LAYER_CHANGED, this.$onTransformLayerChanged, this);
-            for (var i = this.$contacts.length - 1; i > -1; i--) {
-                var contact = this.$contacts[i];
-                if (contact.a === transform || contact.b === transform) {
-                    if (contact.touching === true) {
-                        contact.doCollide(CollisionType.COLLISION_EXIT);
-                    }
-                    this.$contacts.splice(i, 1);
-                }
-            }
-        };
-        World2D.prototype.$onTransformLayerChanged = function (transform) {
-            this.removeTransform(transform);
-            this.addTransform(transform, transform.layer);
-        };
-        World2D.prototype.addDetector = function (a, b) {
-            if (a > b) {
-                var t = a;
-                a = b;
-                b = t;
-            }
-            if (this.$detectors[a] === void 0) {
-                this.$detectors[a] = [];
-            }
-            this.$detectors[a][b] = true;
-        };
-        World2D.prototype.$shouldCollide = function (a, b) {
-            if (a > b) {
-                var t = a;
-                a = b;
-                b = t;
-            }
-            if (this.$detectors[a] !== void 0 && this.$detectors[a][b] === true) {
-                return true;
-            }
-            return false;
-        };
-        Object.defineProperty(World2D.prototype, "transforms", {
-            get: function () {
-                return this.$transforms;
-            },
-            enumerable: true,
-            configurable: true
-        });
-        World2D.DEBUG = false;
-        World2D.TRANSFORM_LAYER_CHANGED = "world2d.TRANSFORM_LAYER_CHANGED";
-        return World2D;
-    }());
-    world2d.World2D = World2D;
-    var CollisionResolution2D;
-    (function (CollisionResolution2D) {
-        function pointInCircle(p, c) {
-            return p.distanceToSquared(c) <= c.radius * c.radius;
-        }
-        CollisionResolution2D.pointInCircle = pointInCircle;
-        function pointInRectangle(p, r) {
-            return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
-        }
-        CollisionResolution2D.pointInRectangle = pointInRectangle;
-        function pointInPolygon(p, p2d) {
-            var vertexs = p2d.vertexs;
-            var radian = 0;
-            for (var i = 0; i < vertexs.length; i++) {
-                var a = vertexs[i];
-                var b = i === 0 ? vertexs[vertexs.length - 1] : vertexs[i - 1];
-                if (a.x === b.x && a.y === b.y) {
-                    continue;
-                }
-                radian += Vector2D.angle(Vector2D.sub(a, p), Vector2D.sub(b, p));
-            }
-            return suncom.Mathf.abs(suncom.Mathf.r2d(radian) - 360) < 0.01;
-        }
-        CollisionResolution2D.pointInPolygon = pointInPolygon;
-        function bounds2Bounds(a, b) {
-            if (a.left > b.right || b.left > a.right || a.top > b.bottom || b.top > a.bottom) {
-                return false;
-            }
-            return true;
-        }
-        CollisionResolution2D.bounds2Bounds = bounds2Bounds;
-        function circle2Circle(a, b) {
-            var dx = b.x - a.x;
-            var dy = b.y - a.y;
-            var dr = a.radius + b.radius;
-            if (dx * dx + dy * dy > dr * dr) {
-                return false;
-            }
-            return true;
-        }
-        CollisionResolution2D.circle2Circle = circle2Circle;
-        function lineCrossCircle(line, circle, out) {
-            var a2p = line.a.distanceToSquared(circle);
-            var b2p = line.b.distanceToSquared(circle);
-            var rxr = circle.radius * circle.radius;
-            if (a2p <= rxr && b2p <= rxr) {
-                out.p1.assign(line.a.x, line.a.y);
-                out.type = CrossTypeEnum.CROSS;
-            }
-            else {
-            }
-            return false;
-        }
-        function circle2Polygin(c, d) {
-            var vertexs = d.vertexs;
-            var radiusSquared = c.radius * c.radius;
-            var nearestVertex = null;
-            var nearestDistanceSquared = suncom.Mathf.MAX_SAFE_INTEGER;
-            var distanceLessOrEqualThanRadius = false;
-            for (var i = 0; i < vertexs.length; i++) {
-                var vertex = vertexs[i];
-                var distance = vertex.distanceToSquared(c);
-                if (distance <= radiusSquared) {
-                    distanceLessOrEqualThanRadius = true;
-                    break;
-                }
-                if (distance < nearestDistanceSquared) {
-                    nearestVertex = vertex;
-                    nearestDistanceSquared = distance;
-                }
-            }
-            if (distanceLessOrEqualThanRadius === true) {
-                return true;
-            }
-            var a = new Vector2D(c.x, c.y);
-            var b = nearestVertex.copy();
-            var ab = new Vector2D(b.x - a.x, b.y - a.y);
-            var normal = ab.normal();
-            var p = ab.copy().normalize().mul(c.radius).add(a);
-            if (vertex2VertexInDirection([p], vertexs, normal) === false) {
-                return false;
-            }
-            var array = [a, b];
-            var segments = d.segments;
-            for (var i = 0; i < segments.length; i++) {
-                var segment = segments[i];
-                if (segment.ab.length() === 0) {
-                    continue;
-                }
-                normal.assign(segment.ab.y, -segment.ab.x).normalize().mul(c.radius);
-                a.assign(c.x, c.y).add(normal);
-                b.assign(c.x, c.y).sub(normal);
-                if (vertex2VertexInDirection(array, vertexs, segment.ab) === false) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        CollisionResolution2D.circle2Polygin = circle2Polygin;
-        function vertex2VertexInDirection(array, array2, direction) {
-            var k = direction.y / direction.x;
-            var m = direction.x / direction.y;
-            var min1 = suncom.Mathf.MAX_SAFE_INTEGER;
-            var max1 = suncom.Mathf.MIN_SAFE_INTEGER;
-            var min2 = suncom.Mathf.MAX_SAFE_INTEGER;
-            var max2 = suncom.Mathf.MIN_SAFE_INTEGER;
-            var x = 0, y = 0;
-            var collide = false;
-            if (k < -1 || k > 1) {
-                while (x < array.length || y < array2.length) {
-                    if (x < array.length) {
-                        var p = array[x];
-                        var b = p.x - m * p.y;
-                        if (min1 > b) {
-                            min1 = b;
-                        }
-                        if (max1 < b) {
-                            max1 = b;
-                        }
-                        x++;
-                    }
-                    if (y < array2.length) {
-                        var p = array2[y];
-                        var b = p.x - m * p.y;
-                        if (min2 > b) {
-                            min2 = b;
-                        }
-                        if (max2 < b) {
-                            max2 = b;
-                        }
-                        y++;
-                    }
-                    if ((max1 < min2 || min1 > max2) === false) {
-                        collide = true;
-                        break;
-                    }
-                }
-            }
-            else {
-                while (x < array.length || y < array2.length) {
-                    if (x < array.length) {
-                        var p = array[x];
-                        var b = p.y - k * p.x;
-                        if (min1 > b) {
-                            min1 = b;
-                        }
-                        if (max1 < b) {
-                            max1 = b;
-                        }
-                        x++;
-                    }
-                    if (y < array2.length) {
-                        var p = array2[y];
-                        var b = p.y - k * p.x;
-                        if (min2 > b) {
-                            min2 = b;
-                        }
-                        if (max2 < b) {
-                            max2 = b;
-                        }
-                        y++;
-                    }
-                    if ((max1 < min2 || min1 > max2) === false) {
-                        collide = true;
-                        break;
-                    }
-                }
-            }
-            return collide;
-        }
-        function polygon2Vertexs(polygon, vertexs) {
-            var array = polygon.vertexs;
-            var segments = polygon.segments;
-            for (var i = 0; i < segments.length; i++) {
-                var segment = segments[i];
-                if (segment.ab.length() === 0) {
-                    continue;
-                }
-                if (vertex2VertexInDirection(array, vertexs, segments[i].ab) === false) {
-                    return false;
-                }
-            }
-            return true;
-        }
-        CollisionResolution2D.polygon2Vertexs = polygon2Vertexs;
-        function line2Circle(line, circle, out) {
-            var rxr = circle.radius * circle.radius;
-            var a2cs = line.a.distanceToSquared(circle);
-            var b2cs = line.b.distanceToSquared(circle);
-            if (a2cs <= rxr && b2cs <= rxr) {
-                out.p1.assign(line.a.x, line.a.y);
-                out.type = CrossTypeEnum.CROSS;
-                return true;
-            }
-            var normal = line.ab.normal().normalize().mul(circle.radius);
-            var a = new Vector2D(circle.x, circle.y).add(normal);
-            var b = new Vector2D(circle.x, circle.y).sub(normal);
-            var info = {
-                p: new Vector2D(0, 0),
-                type: CrossTypeEnum.NONE
-            };
-            isLineBetweenPoints(line.a, line.ab, a, b, info);
-            if (info.type === CrossTypeEnum.NONE) {
-                return false;
-            }
-            info.type = CrossTypeEnum.NONE;
-            var lxl = info.p.copy().sub(circle).lengthSquared();
-            var distance = Math.sqrt(rxr - lxl);
-            normal.assign(line.ab.x, line.ab.y).normalize().mul(distance);
-            a = info.p.copy().add(normal);
-            b = info.p.copy().sub(normal);
-            var isAinLine = isInRange(a.x, line.a.x, line.b.x) && isInRange(a.y, line.a.y, line.b.y);
-            var isBinLine = isInRange(b.x, line.a.x, line.b.x) && isInRange(b.y, line.a.y, line.b.y);
-            if (isAinLine && isBinLine) {
-                makeP1andP2(line.a, a, b, out);
-                out.type = CrossTypeEnum.CROSS_2;
-            }
-            else if (isAinLine) {
-                out.p1 = a;
-                out.type = CrossTypeEnum.CROSS;
-            }
-            else if (isBinLine) {
-                out.p1 = b;
-                out.type = CrossTypeEnum.CROSS;
-            }
-            else {
-                return false;
-            }
-        }
-        CollisionResolution2D.line2Circle = line2Circle;
-        function line2Polygon(line, polygon, type, out) {
-            var segments = polygon.segments;
-            var info = {
-                p: new world2d.Vector2D(0, 0),
-                type: CrossTypeEnum.NONE
-            };
-            for (var i = 0; i < segments.length; i++) {
-                var seg = segments[i];
-                if (type === RaycastTypeEnum.ANY || type === RaycastTypeEnum.ALL) {
-                    if (line2Line(line.ab, line.a, line.b, seg.ab, seg.a, seg.b, null)) {
-                        out.type = CrossTypeEnum.CROSS;
-                        break;
-                    }
-                }
-                else {
-                    line2Line(line.ab, line.a, line.b, seg.ab, seg.a, seg.b, info);
-                    if (info.type === CrossTypeEnum.CROSS) {
-                        if (out.type === CrossTypeEnum.NONE) {
-                            out.type = CrossTypeEnum.CROSS;
-                            out.p1.assign(info.p.x, info.p.y);
-                        }
-                        else {
-                            out.type = CrossTypeEnum.CROSS_2;
-                            out.p2.assign(info.p.x, info.p.y);
-                        }
-                        if (out.type === CrossTypeEnum.CROSS_2) {
-                            break;
-                        }
-                        info.type = CrossTypeEnum.NONE;
-                    }
-                }
-            }
-            if (out.type === CrossTypeEnum.NONE) {
-                if (pointInPolygon(line.a, polygon) && pointInPolygon(line.b, polygon)) {
-                    out.p1.assign(line.a.x, line.a.y);
-                    out.type = CrossTypeEnum.CROSS;
-                }
-            }
-            else if (out.type === CrossTypeEnum.CROSS_2) {
-                makeP1andP2(line.a, out.p1, out.p2, out);
-            }
-            return out.type !== CrossTypeEnum.NONE;
-        }
-        CollisionResolution2D.line2Polygon = line2Polygon;
-        function makeP1andP2(p, p1, p2, out) {
-            if (p2.distanceToSquared(p) < p1.distanceToSquared(p)) {
-                out.p1 = p2;
-                out.p2 = p1;
-            }
-            else {
-                out.p1 = p1;
-                out.p2 = p2;
-            }
-        }
-        function line2Line(a, a1, a2, b, b1, b2, info) {
-            var type;
-            if (a.x === 0 && b.x === 0) {
-                if (a1.x === b1.x && (isInRange(a1.y, b1.y, b2.y) || isInRange(a2.y, b1.y, b2.y) || isInRange(b1.y, a1.y, a2.y) || isInRange(b2.y, a1.y, a2.y))) {
-                    type = CrossTypeEnum.OVERLAP;
-                }
-                else {
-                    type = CrossTypeEnum.NONE;
-                }
-            }
-            else if (a.y === 0 && b.y === 0) {
-                if (a1.y === b1.y && (isInRange(a1.x, b1.x, b2.x) || isInRange(a2.x, b1.x, b2.x) || isInRange(b1.x, a1.x, a2.x) || isInRange(b2.x, a1.x, a2.x))) {
-                    type = CrossTypeEnum.OVERLAP;
-                }
-                else {
-                    type = CrossTypeEnum.NONE;
-                }
-            }
-            else if (isLineBetweenPoints(b1, b, a1, a2, info) && isLineBetweenPoints(a1, a, b1, b2, info)) {
-                type = CrossTypeEnum.CROSS;
-            }
-            else {
-                type = CrossTypeEnum.NONE;
-            }
-            if (info !== null && info.type !== type) {
-                info.type = type;
-            }
-            return type !== CrossTypeEnum.NONE;
-        }
-        CollisionResolution2D.line2Line = line2Line;
-        function isLineBetweenPoints(a, ab, p1, p2, info) {
-            if (ab.x === 0) {
-                return isInRange(a.x, p1.x, p2.x) && fixCrossInfo(a.x, a.x, p1.y, p2.y, info);
-            }
-            else if (ab.y === 0) {
-                return isInRange(a.y, p1.y, p2.y) && fixCrossInfo(p1.x, p2.x, a.y, a.y, info);
-            }
-            else {
-                var k = ab.y / ab.x;
-                if (k > -1 && k < 1) {
-                    var b = a.y - k * a.x;
-                    var p1b = p1.y - k * p1.x;
-                    var p2b = p2.y - k * p2.x;
-                    return isInRange(b, p1b, p2b) && makeCrossInfo(b, p1b, p2b, p1, p2, info);
-                }
-                else {
-                    var m = ab.x / ab.y;
-                    var n = a.x - m * a.y;
-                    var p1n = p1.x - m * p1.y;
-                    var p2n = p2.x - m * p2.y;
-                    return isInRange(n, p1n, p2n) && makeCrossInfo(n, p1n, p2n, p1, p2, info);
-                }
-            }
-        }
-        CollisionResolution2D.isLineBetweenPoints = isLineBetweenPoints;
-        function isInRange(x, a, b) {
-            if (a < b) {
-                return a <= x && x <= b;
-            }
-            else {
-                return b <= x && x <= a;
-            }
-        }
-        CollisionResolution2D.isInRange = isInRange;
-        function fixCrossInfo(x1, x2, y1, y2, info) {
-            if (info !== null && info.type === CrossTypeEnum.NONE && x1 === x2 && y1 === y2) {
-                info.p.assign(x1, y1);
-                info.type = CrossTypeEnum.CROSS;
-            }
-            return true;
-        }
-        function makeCrossInfo(k, k1, k2, p1, p2, info) {
-            if (info !== null && info.type === CrossTypeEnum.NONE) {
-                info.p = new Vector2D(p2.x - p1.x, p2.y - p1.y).mul((k - k1) / (k2 - k1)).add(p1);
-                info.type = CrossTypeEnum.CROSS;
-            }
-            return true;
-        }
-    })(CollisionResolution2D = world2d.CollisionResolution2D || (world2d.CollisionResolution2D = {}));
-    var DrawAPI2D;
-    (function (DrawAPI2D) {
-        function clear() {
-            DrawAPI2D.graphics.clear();
-        }
-        DrawAPI2D.clear = clear;
-        function draw(transforms) {
-            for (var i = 0; i < transforms.length; i++) {
-                var transform = transforms[i];
-                var bounds = transform.collision.bounds;
-                DrawAPI2D.drawRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, "#FF0000");
-            }
-            for (var i = 0; i < transforms.length; i++) {
-                var transform = transforms[i];
-                if (transform.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    var collision = transform.collision;
-                    DrawAPI2D.drawCircle(transform.x, transform.y, collision.radius, "#FF0000");
-                }
-                else if (transform.collision.shap === CollisionShapEnum2D.POLYGON) {
-                    var collision = transform.collision;
-                    DrawAPI2D.drawPolygon(0, 0, collision.vertexs, "#FF0000");
-                }
-                else {
-                    var collision = transform.collision;
-                    DrawAPI2D.drawPolygon(0, 0, collision.vertexs, "#FF0000");
-                }
-            }
-            for (var i = 0; i < transforms.length; i++) {
-                var transform = transforms[i];
-                var lineColor = transform.hitNum === 0 ? "#0000FF" : "#00FF00";
-                if (transform.collision.shap === CollisionShapEnum2D.CIRCLE) {
-                    var collision = transform.collision;
-                    DrawAPI2D.drawCircle(transform.x, transform.y, collision.radius, lineColor);
-                }
-                else if (transform.collision.shap === CollisionShapEnum2D.POLYGON) {
-                    var collision = transform.collision;
-                    DrawAPI2D.drawPolygon(0, 0, collision.vertexs, lineColor);
-                }
-                else {
-                    var bounds = transform.collision.bounds;
-                    DrawAPI2D.drawRect(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top, lineColor);
-                }
-            }
-        }
-        DrawAPI2D.draw = draw;
-        function drawLine(a, b, lineColor) {
-            DrawAPI2D.graphics.drawLine(a.x, a.y, b.x, b.y, lineColor);
-        }
-        DrawAPI2D.drawLine = drawLine;
-        function drawNormal(a, lineColor) {
-            var normal = a.copy().normalize().mul(1000);
-            DrawAPI2D.graphics.drawLine(a.x, a.y, -a.x, -a.y, lineColor);
-        }
-        DrawAPI2D.drawNormal = drawNormal;
-        function drawRect(x, y, width, height, lineColor) {
-            DrawAPI2D.graphics.drawRect(x, y, width, height, void 0, lineColor);
-        }
-        DrawAPI2D.drawRect = drawRect;
-        function drawCircle(x, y, radius, lineColor) {
-            DrawAPI2D.graphics.drawCircle(x, y, radius, void 0, lineColor);
-        }
-        DrawAPI2D.drawCircle = drawCircle;
-        function drawPolygon(x, y, vertexs, lineColor) {
-            for (var i = 0; i < vertexs.length; i++) {
-                var a = vertexs[i];
-                var b = i === 0 ? vertexs[vertexs.length - 1] : vertexs[i - 1];
-                DrawAPI2D.graphics.drawLine(a.x + x, a.y + y, b.x + x, b.y + y, lineColor);
-            }
-        }
-        DrawAPI2D.drawPolygon = drawPolygon;
-    })(DrawAPI2D = world2d.DrawAPI2D || (world2d.DrawAPI2D = {}));
-    var Helper2D;
-    (function (Helper2D) {
-        function calculateBoundsForVertexs(vertexs, bounds) {
-            var p = vertexs[0];
-            var left = p.x;
-            var right = p.x;
-            var top = p.y;
-            var bottom = p.y;
-            for (var i = 1; i < vertexs.length; i++) {
-                var p_1 = vertexs[i];
-                if (left > p_1.x) {
-                    left = p_1.x;
-                }
-                else if (right < p_1.x) {
-                    right = p_1.x;
-                }
-                if (top > p_1.y) {
-                    top = p_1.y;
-                }
-                else if (bottom < p_1.y) {
-                    bottom = p_1.y;
-                }
-            }
-            bounds.updateBounds(left, right, top, bottom);
-        }
-        Helper2D.calculateBoundsForVertexs = calculateBoundsForVertexs;
-    })(Helper2D = world2d.Helper2D || (world2d.Helper2D = {}));
-})(world2d || (world2d = {}));
+//# sourceMappingURL=sunlib.js.map

@@ -16,17 +16,17 @@ const func2 = () => {
 
 class Facade extends puremvc.Facade {
 
-	static getInstance(): puremvc.IFacade {
+	static getInstance(): puremvc.Facade {
 		return puremvc.Facade.inst || new Facade();
 	}
 
-	protected $initMsgQ(): void {
-		super.$initMsgQ();
-		this.$regMMICmd(suncore.MsgQModEnum.CUI, "CUI");
-		this.$regMMICmd(suncore.MsgQModEnum.GUI, "GUI");
-		this.$regMsgQCmd(suncore.MsgQModEnum.KAL, "KAL");
-		this.$regMsgQCmd(suncore.MsgQModEnum.L4C, "MSG");
-	}
+	// protected $initMsgQ(): void {
+	// 	super.$initMsgQ();
+	// 	this.$regMMICmd(suncore.MsgQModEnum.CUI, "CUI");
+	// 	this.$regMMICmd(suncore.MsgQModEnum.GUI, "GUI");
+	// 	this.$regMsgQCmd(suncore.MsgQModEnum.KAL, "KAL");
+	// 	this.$regMsgQCmd(suncore.MsgQModEnum.L4C, "MSG");
+	// }
 }
 
 class TestCommand extends puremvc.SimpleCommand {
@@ -40,7 +40,7 @@ function func(x: number, y: number) {
 	console.log("func x:" + x, ", y:" + y);
 }
 
-class TestMediator extends puremvc.Mediator {
+class TestMediator extends puremvc.Mediator<Laya.View> {
 
 	static readonly NAME: string = "TestMediator";
 
@@ -87,7 +87,8 @@ class MMI_A extends puremvc.SimpleCommand {
 class A extends puremvc.Notifier {
 
 	constructor() {
-		super(suncore.MsgQModEnum.L4C);
+		super();
+		// super(suncore.MsgQModEnum.L4C);
 		// this.facade.registerObserver("KAL_C", this.$func, this);
 		this.facade.registerObserver("MSG_C", this.$func, this);
 		this.facade.registerObserver("MSG_B", () => { }, this);
@@ -105,7 +106,7 @@ class A extends puremvc.Notifier {
 	}
 }
 
-class TestProxy extends puremvc.Proxy {
+class TestProxy extends puremvc.Proxy<number> {
 
 	static readonly NAME: string = "TestProxy";
 
@@ -114,7 +115,8 @@ class TestProxy extends puremvc.Proxy {
 class B extends puremvc.Notifier {
 
 	constructor() {
-		super(suncore.MsgQModEnum.GUI);
+		super();
+		// super(suncore.MsgQModEnum.GUI);
 	}
 }
 

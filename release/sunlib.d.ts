@@ -77,7 +77,12 @@ declare module suncom {
         /**
          * 网页版
          */
-        WEB
+        WEB,
+
+        /**
+         * 原生平台
+         */
+        NATIVE
     }
 
     /**
@@ -125,33 +130,32 @@ declare module suncom {
         OSL
     }
 
-    /**
-     * 自定义事件系统中的事件信息
-     */
-    interface IEventInfo {
+    interface IPCMInt2 {
+
+        arg1: number;
+
+        arg2: number;
+    }
+
+    interface IPCMIntString {
+
+        arg1: number;
+
+        arg2: string;
     }
 
     /**
-     * 自定义事件接口
+     * 自定义事件系统
      */
-    interface IEventSystem {
-
-        /**
-         * 取消当前正在派发的事件
-         */
-        dispatchCancel(): void;
-
-        /**
-         * 事件派发
-         * @args[]: 参数列表，允许为任意类型的数据
-         * @cancelable: 事件是否允许被中断，默认为false
-         */
-        dispatchEvent(type: string, args?: any, cancelable?: boolean): void;
+    class EventSystem {
 
         /**
          * 事件注册
          * @receiveOnce: 是否只响应一次，默认为false
          * @priority: 事件优先级，优先级高的先被执行，默认为：EventPriorityEnum.MID
+         * @args[]: 回调参数列表，默认为: null
+         * 说明：
+         * 1. 若需覆盖参数，请先调用removeEventListener移除事件后再重新注册
          */
         addEventListener(type: string, method: Function, caller: Object, receiveOnce?: boolean, priority?: EventPriorityEnum): void;
 
@@ -159,21 +163,39 @@ declare module suncom {
          * 移除事件
          */
         removeEventListener(type: string, method: Function, caller: Object): void;
+
+        /**
+         * 事件派发
+         * @data: 参数对象，允许为任意类型的数据，传递多个参数时可指定其为数组，若需要传递的data本身就是数组，则需要传递[data]
+         * @cancelable: 通知是否允许被取消，默认为: true
+         */
+        dispatchEvent(type: string, data?: any, cancelable?: boolean): void;
+
+        /**
+         * 取消当前正在派发的事件
+         */
+        dispatchCancel(): void;
     }
 
     /**
-     * 期望异常测试类接口
+     * 期望异常测试类
      */
-    interface IExpect {
+    class Expect {
+
         /**
-         * 期望相反
+         * 指定期望值
          */
-        readonly not: IExpect;
+        expect(value: any): Expect;
 
         /**
          * 解释异常
          */
-        interpret(str: string): IExpect;
+        interpret(str: string): Expect;
+
+        /**
+         * 测试执行接口，若测试未通过，则输出description
+         */
+        test(pass: boolean, message: string): void;
 
         /**
          * 期望为任意值，但不为null和undefined
@@ -217,14 +239,14 @@ declare module suncom {
         toBeUndefined(): void;
 
         /**
-         * 期望值为：布尔类型
+         * 期望为：布尔类型
          */
         toBeBoolean(): void;
 
         /**
          * 期望对象类型为：cls
          */
-        toBeInstanceOf(cls: new (...args: any[]) => any): void;
+        toBeInstanceOf(cls: new () => any): void;
 
         /**
          * 期望在不关心类型的情况下，值在布尔上下文中为假
@@ -235,6 +257,12 @@ declare module suncom {
          * 期望在不关心类型的情况下，值在布尔上下文中为真
          */
         toBeTruthy(value: any): void;
+
+        /**
+         * 期望两个数字是否相等
+         * @deviation: 误差，默认为：0
+         */
+        toBeCloseTo(value: number, deviation?: number): void;
 
         /**
          * 期望数字大于
@@ -265,147 +293,17 @@ declare module suncom {
          * 深度相等且类型一致
          */
         toStrictEqual(value: any): void;
-    }
-
-    /**
-     * 回调执行器接口
-     */
-    interface IHandler {
-        /**
-         * 回调对象
-         */
-        readonly caller: Object;
 
         /**
-         * 回调方法
+         * 期望相反
          */
-        readonly method: Function;
-
-        /**
-         * 执行回调
-         */
-        run(): any;
-
-        /**
-         * 执行回调，同时携带额外的参数
-         * @args 参数列表，允许为任意类型的数据
-         */
-        runWith(args: any): any;
-    }
-
-    /**
-     * 哈希表接口，通常用于作为一个大量数据的集合，用于快速获取数据集中的某条数据
-     */
-    interface IHashMap<T> {
-        /**
-         * 数据源（请勿直接操作其中的数据）
-         */
-        source: T[];
-
-        /**
-         * 添加数据
-         */
-        put(data: T): T;
-
-        /**
-         * 移除数据
-         */
-        remove(data: T): T;
-
-        /**
-         * 根据键值返回数据
-         */
-        getByValue(key: string, value: any): T;
-
-        /**
-         * 根据主键值快速返回数据
-         */
-        getByPrimaryValue(value: number | string): T;
-
-        /**
-         * 根据键值移除数据
-         */
-        removeByValue(key: string, value: any): T;
-
-        /**
-         * 根据主键值移除数据
-         */
-        removeByPrimaryValue(value: number | string): T;
-
-        /**
-         * 为每个数据执行方法
-         * 说明：
-         * 1. 若method返回true，则会中断遍历
-         * 2. 谨慎在此方法中新增或移除数据
-         */
-        forEach(method: (data: T) => any): void;
-    }
-
-    interface IPCMInt2 {
-
-        arg1: number;
-
-        arg2: number;
-    }
-
-    interface IPCMIntString {
-
-        arg1: number;
-
-        arg2: string;
-    }
-
-    /**
-     * 自定义事件系统
-     */
-    class EventSystem implements IEventSystem {
-        /**
-         * 事件对象集合（内置属性，请勿操作）
-         * 为避免注册与注销对正在派发的事件列表产生干扰：
-         * NOTE: 每个列表首个元素为布尔类型，默认为 false
-         * NOTE: 若该列表的事件类型正在派发，则其值为 true
-         */
-        private $events: { [type: string]: Array<boolean | IEventInfo> };
-
-        /**
-         * 己执行的一次性事件对象列表（内置属性，请勿操作）
-         */
-        private $onceList: IEventInfo[];
-
-        /**
-         * 事件是否己取消（内置属性，请勿操作）
-         */
-        private $isCanceled: boolean;
-
-        /**
-         * 取消当前正在派发的事件
-         */
-        dispatchCancel(): void;
-
-        /**
-         * 事件派发
-         * @args: 参数列表，允许为任意类型的数据
-         * @cancelable: 事件是否允许被中断，默认为false
-         */
-        dispatchEvent(type: string, args?: any, cancelable?: boolean): void;
-
-        /**
-         * 事件注册
-         * @receiveOnce: 是否只响应一次，默认为false
-         * @priority: 事件优先级，优先级高的先被执行，默认为：EventPriorityEnum.MID
-         */
-        addEventListener(type: string, method: Function, caller: Object, receiveOnce?: boolean, priority?: EventPriorityEnum): void;
-
-        /**
-         * 移除事件
-         */
-        removeEventListener(type: string, method: Function, caller: Object): void;
+        readonly not: Expect;
     }
 
     /**
      * 事件处理器
      */
-    class Handler implements IHandler {
+    class Handler {
 
         /**
          * 执行处理器
@@ -417,6 +315,11 @@ declare module suncom {
          * @args 参数列表，允许为任意类型的数据
          */
         runWith(args: any): any;
+
+        /**
+         * 回收到对象池
+         */
+        recover(): void;
 
         /**
          * 回调对象
@@ -431,13 +334,13 @@ declare module suncom {
         /**
          * 创建Handler的简单工厂方法
          */
-        static create(caller: Object, method: Function, args?: any[]): IHandler;
+        static create(caller: Object, method: Function, args?: any[], once?: boolean): Handler;
     }
 
     /**
      * 哈希表，通常用于作为一个大量数据的集合，用于快速获取数据集中的某条数据
      */
-    class HashMap<T> implements IHashMap<T> {
+    class HashMap<T> {
         /**
          * 数据源（请勿直接操作其中的数据）
          */
@@ -446,7 +349,7 @@ declare module suncom {
         /**
          * @primaryKey: 指定主键字段名，哈希表会使用主键值来作为数据索引，所以请确保主键值是恒值
          */
-        constructor(primaryKey: string);
+        constructor(primaryKey: number | string);
 
         /**
          * 添加数据
@@ -456,7 +359,7 @@ declare module suncom {
         /**
          * 根据键值返回数据
          */
-        getByValue(key: string, value: any): T;
+        getByValue(key: number | string, value: any): T;
 
         /**
          * 根据主键值快速返回数据
@@ -471,7 +374,7 @@ declare module suncom {
         /**
          * 根据键值移除数据
          */
-        removeByValue(key: string, value: any): T;
+        removeByValue(key: number | string, value: any): T;
 
         /**
          * 根据主键值移除数据
@@ -498,6 +401,11 @@ declare module suncom {
         function createHashId(): number;
 
         /**
+         * 判断属性是否为 null 或未定义
+         */
+        function isNullOrUndefined(value: any): boolean;
+
+        /**
          * 获取类名
          * @cls: 指定类型
          */
@@ -516,23 +424,24 @@ declare module suncom {
 
         /**
          * 去除字符串的头尾空格
+         * 说明：
+         * 1. 当 str 为无效字符串时返回 null
          */
-        function trim(str?: string): string;
+        function trim(str: string): string;
 
         /**
          * 判断字符串是否为空
+         * 说明：
+         * 1. 当 value 为数字且不为 NaN 时返回 true
+         * 2. 当 value 为字符串且不为 "" 时返回 true
+         * 3. 否则返回 false
          */
-        function isStringInvalidOrEmpty(str: string | number): boolean;
+        function isStringNullOrEmpty(value: string | number): boolean;
 
         /**
          * 格式化字符串
          */
         function formatString(str: string, args: any[]): string;
-
-        /**
-         * 格式化字符串
-         */
-        function formatString$(str: string, args: any[]): string;
 
         /**
          * 将参数转化为 Date
@@ -567,9 +476,14 @@ declare module suncom {
         function formatDate(str: string, time: string | number | Date): string;
 
         /**
-         * 返回MD5加密后的串
+         * 返回 md5 加密后的串
          */
         function md5(str: string): string;
+
+        /**
+         * 获取 Url 参数值
+         */
+        function getQueryString(name: string, param?: string): string;
 
         /**
          * 生成HTTP签名
@@ -597,10 +511,10 @@ declare module suncom {
          * 从数组中查找数据
          * @array: 数据源
          * @method: 查询规则，返回true表示与规则匹配
-         * @out: 若不为null，则返回查询到的所有数据
+         * @out: 若不为null，则返回查询到的所有数据，默认为: null
          * @return: 若out为null，则只返回查询到的第一条数据，否则返回null
          */
-        function findFromArray<T>(array: T[], method: (data: T) => boolean, out?: T[]): T;
+        function findInArray<T>(array: T[], method: (data: T) => boolean, out?: T[]): T;
 
         /**
          * 将数据从数组中移除
@@ -693,6 +607,11 @@ declare module suncom {
          * 游戏版本，默认为：1.0.0
          */
         let VERSION: string;
+
+        /**
+         * 全局数据中心
+         */
+        const dataMap: { [key: string]: any };
     }
 
     /**
@@ -775,21 +694,6 @@ declare module suncom {
         function r2d(a: number): number;
 
         /**
-         * 获取绝对值
-         */
-        function abs(a: number): number;
-
-        /**
-         * 获取较小值
-         */
-        function min(a: number, b: number): number;
-
-        /**
-         * 获取较大值
-         */
-        function max(a: number, b: number): number;
-
-        /**
          * 将value限制于min和max之间
          */
         function clamp(value: number, min: number, max: number): number;
@@ -831,8 +735,9 @@ declare module suncom {
 
         /**
          * 根据标识回收对象
+         * @return: 成功入池时返回: true, 否则返回: false
          */
-        function recover(sign: string, item: any): void;
+        function recover(sign: string, item: any): boolean;
 
         /**
          * 清缓指定标识下的所有己缓存对象
@@ -873,7 +778,7 @@ declare module suncom {
         /**
          * 期望测试
          */
-        function expect(value: any, description?: string): IExpect;
+        function expect(value: any, description?: string): Expect;
 
         /**
          * 期望之外的，执行此方法时直接触发ASSERT_FAILED
@@ -913,7 +818,7 @@ declare module suncore {
          * 说明：
          * 1. 请谨慎定义此消息的回调执行器的返回值，详见 LAZY 消息说明
          */
-        PRIORITY_0,
+        PRIORITY_0 = 0,
 
         /**
          * 每帧至多响应十次消息
@@ -960,7 +865,19 @@ declare module suncore {
          * 1. 任务消息在执行时，会阻塞整个消息队列，直至任务完成
          * 2. 新的任务只会在下一帧被开始执行
          */
-        PRIORITY_TASK
+        PRIORITY_TASK,
+
+        /**
+         * 承诺消息
+         * 说明：
+         * 1. 此消息是取代原生js的Promise机制用的
+         * 2. 与任务消息类似，承诺也是阻塞式执行的
+         * 3. 影响承诺执行优先级的除了承诺的被添加顺序之外，还有承诺的批次
+         * 4. 当你在承诺执行的过程中添加新的承诺时，这些承诺将被视为新的批次
+         * 5. 新批次的承诺拥有更高的执行优先级，它们将在当前承诺执行完毕之后开始执行
+         * 6. 当当前批次中的所有承诺全部执行完毕之后，上一批承诺将会继续执行，直至整个消息队列为空
+         */
+        PRIORITY_PROMISE
     }
 
     /**
@@ -975,15 +892,10 @@ declare module suncore {
      */
     enum ModuleEnum {
         /**
-         * 枚举开始
-         */
-        MIN = 0,
-
-        /**
          * 系统模块
          * 此模块为常驻模块，该模块下的消息永远不会被清理
          */
-        SYSTEM = MIN,
+        SYSTEM = 0,
 
         /**
          * 通用模块
@@ -1077,101 +989,13 @@ declare module suncore {
     }
 
     /**
-     * MsgQ消息体接口
-     */
-    interface IMsgQMsg {
-        /**
-         * 响应消息的模块
-         */
-        dst: MsgQModEnum;
-
-        /**
-         * 消息编号
-         */
-        id: number;
-
-        /**
-         * 消息挂载的数据
-         */
-        data: any;
-    }
-
-    /**
-     * 服务接口（主要用于逻辑层架构）
-     * 说明：
-     * 1. 每个服务均有独立的生命周期。
-     * 2. 服务被设计用来处理与表现层无关的有状态业务。
-     */
-    interface IService {
-        /**
-         * 服务是否正在运行
-         */
-        readonly running: boolean;
-
-        /**
-         * 服务启动入口
-         */
-        run(): void;
-
-        /**
-         * 服务停止接口
-         */
-        stop(): void;
-    }
-
-    /**
-     * 任务接口
-     * 说明：
-     * 1. Task必定为MMI层对象，这是不可更改的
-     * 2. Task一旦开始则不允许取消，可直接设置done为true来强制结束
-     * 3. Task对象有自己的生命周期管理机制，故不建议在外部持有
-     */
-    interface ITask {
-        /**
-         * 是否己完成
-         * 说明：
-         * 1. 请勿重写此getter和setter函数，否则可能会出问题
-         */
-        done: boolean;
-
-        /**
-         * 是否正在运行
-         */
-        readonly running: boolean;
-
-        /**
-         * 执行函数
-         * @return: 为true时表示任务立刻完成
-         */
-        run(): boolean;
-
-        /**
-         * 任务被取消
-         * 说明：
-         * 1. 当消息因时间轴停止而被清理时，此方法会被自动执行，用于清理Task内部的数据
-         * 2. 当done被设置为true时，此方法亦会被执行，请知悉
-         */
-        cancel(): void;
-    }
-
-    /**
      * 任务抽象类
      * 说明：
      * 1. Task必定为MMI层对象，这是不可更改的
      * 2. Task一旦开始则不允许取消，可直接设置done为true来强制结束
      * 3. Task对象有自己的生命周期管理机制，故不建议在外部持有
      */
-    abstract class AbstractTask extends puremvc.Notifier implements ITask {
-        /**
-         * 任务是否己经完成（内置属性，请勿操作）
-         */
-        private $done: boolean;
-
-        /**
-         * 是否正在运行（内置属性，请勿操作）
-         */
-        private $running: boolean;
-
+    abstract class AbstractTask extends puremvc.Notifier {
         /**
          * 是否正在运行
          */
@@ -1205,11 +1029,7 @@ declare module suncore {
      * 1. 每个服务均有独立的生命周期。
      * 2. 服务被设计用来处理与表现层无关的有状态业务。
      */
-    abstract class BaseService extends puremvc.Notifier implements IService {
-        /**
-         * 服务是否己启动（内置属性，请勿操作）
-         */
-        private $running: boolean;
+    abstract class BaseService extends puremvc.Notifier {
 
         /**
          * 服务启动入口
@@ -1257,7 +1077,7 @@ declare module suncore {
         /**
          * 处理MsgQ消息
          */
-        protected abstract $dealMsgQMsg(msg: IMsgQMsg): void;
+        protected abstract $dealMsgQMsg(id: number, data: any): void;
     }
 
     /**
@@ -1274,13 +1094,14 @@ declare module suncore {
 
     /**
      * 简单任务对象
+     * 说明：
      */
     class SimpleTask extends AbstractTask {
 
-        constructor(handler: suncom.IHandler);
+        constructor(caller: Object, method: Function, args?: any[]);
 
         /**
-         * 执行函数
+         * 执行函数，只能返回: true
          */
         run(): boolean;
     }
@@ -1406,12 +1227,12 @@ declare module suncore {
 
         /**
          * 添加任务
-         * @groupId: 不同编组并行执行，若为-1，则自动给预一个groupId
+         * @groupId: 不同编组并行执行，若为-1，则自动给预一个groupId，默认为: 0
          * @return: 返回任务的groupId，若为-1，则说明任务添加失败
          * 说明：
          * 1. 自定义的groupId的值不允许超过1000
          */
-        function addTask(mod: ModuleEnum, groupId: number, task: ITask): number;
+        function addTask(mod: ModuleEnum, task: AbstractTask, groupId?: number): number;
 
         /**
          * 取消任务
@@ -1421,12 +1242,18 @@ declare module suncore {
         /**
          * 添加触发器
          */
-        function addTrigger(mod: ModuleEnum, delay: number, handler: suncom.IHandler): void;
+        function addTrigger(mod: ModuleEnum, delay: number, caller: Object, method: Function, args?: any[]): void;
+
+        /**
+         * 添加承诺
+         * @method: 此方法被调用时，第一个参数必然是resolve方法，你应当在method方法执行完毕时调用resolve方法，否则该promise将永远不会结束
+         */
+        function addPromise(mod: ModuleEnum, caller: Object, method: Function, args?: any[]): void;
 
         /**
          * 添加消息
          */
-        function addMessage(mod: ModuleEnum, priority: MessagePriorityEnum, handler: suncom.IHandler): void;
+        function addMessage(mod: ModuleEnum, priority: MessagePriorityEnum, caller: Object, method: Function, args?: any[]): void;
 
         /**
          * 添加自定义定时器
@@ -1642,7 +1469,7 @@ declare module suntdd {
          * @line: 是否进入队列，若为false，则必须指定handler，默认：true
          * @once: 是否只响应一次，若line为true，则once必然为true，默认为：true
          */
-        protected $wait(id: number, handler?: suncom.IHandler, line?: boolean, once?: boolean): void;
+        protected $wait(id: number, handler?: suncom.Handler, line?: boolean, once?: boolean): void;
 
         /**
          * 点击按钮
@@ -1945,34 +1772,6 @@ declare module sunui {
     }
 
     /**
-     * Retryer接口
-     */
-    interface IRetryer {
-        /**
-         * 当前重试次数
-         */
-        readonly currentRetries: number;
-
-        /**
-         * 执行接口
-         * @delay: 重试延时
-         * @maxRetries: 最大重试次数，默认为：2
-         * @return: 返回true表示允许重试
-         */
-        run(delay: number, handler: suncom.IHandler, maxRetries?: number): void;
-
-        /**
-         * 取消重试
-         */
-        cancel(): void;
-
-        /**
-         * 重置（仅会重置次数统计）
-         */
-        reset(): void;
-    }
-
-    /**
      * 场景信息
      */
     interface ISceneInfo {
@@ -2000,37 +1799,6 @@ declare module sunui {
          * 反初始化类
          */
         uniCls?: new (info: ISceneInfo, data?: any) => sunui.SceneUniClass;
-    }
-
-    /**
-     * 缓动类
-     */
-    interface ITween {
-
-        /**
-         * 取消缓动
-         */
-        cancel(): ITween;
-
-        /**
-         * 从当前属性缓动至props属性
-         */
-        to(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
-
-        /**
-         * 从props属性缓动至当前属性
-         */
-        from(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
-
-        /**
-         * 以props属性的幅度进行缓动
-         */
-        by(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
-
-        /**
-         * 等待指定时间
-         */
-        wait(delay: number, handler?: suncom.IHandler): ITween;
     }
 
     /**
@@ -2147,7 +1915,7 @@ declare module sunui {
         /**
          * @condition: 返回true时表示符合拦截条件
          */
-        constructor(command: string, condition: suncom.IHandler);
+        constructor(command: string, condition: suncom.Handler);
     }
 
     /**
@@ -2165,7 +1933,7 @@ declare module sunui {
          * @condition: 拦截条件，返回true时进行拦截
          * @dependencies：依赖列表
          */
-        protected $addCommand(command: string, condition: suncom.IHandler, dependencies: GUILogicDependence[]): void;
+        protected $addCommand(command: string, condition: suncom.Handler, dependencies: GUILogicDependence[]): void;
 
         /**
          * 获取Runnable的唯一ID（Runnable销毁时有用）
@@ -2187,7 +1955,7 @@ declare module sunui {
     /**
      * 重试机制
      */
-    class Retryer extends puremvc.Notifier implements IRetryer {
+    class Retryer extends puremvc.Notifier {
 
         /**
          * @confirmHandler: 若重试超过最大次数，则会执行此回调
@@ -2197,7 +1965,7 @@ declare module sunui {
          * 2. 若未输入 RetryMethodEnum ，则默认值为 RetryMethodEnum.AUTO
          * 3. 若未输入 suncore.ModuleEnum ，则默认值为 suncore.ModuleEnum.SYSTEM
          */
-        constructor(modOrMethod: suncore.ModuleEnum | RetryMethodEnum, confirmHandler?: suncom.IHandler, prompt?: string, ...options: Array<ConfirmOptionValueEnum | string>);
+        constructor(modOrMethod: suncore.ModuleEnum | RetryMethodEnum, confirmHandler?: suncom.Handler, prompt?: string, ...options: Array<ConfirmOptionValueEnum | string>);
 
         /**
          * 执行接口
@@ -2205,7 +1973,7 @@ declare module sunui {
          * @maxRetries: 最大重试次数，默认为：2
          * @return: 返回true表示允许重试
          */
-        run(delay: number, handler: suncom.IHandler, maxRetries?: number): void;
+        run(delay: number, handler: suncom.Handler, maxRetries?: number): void;
 
         /**
          * 取消重试
@@ -2255,38 +2023,62 @@ declare module sunui {
 
     /**
      * 缓动类
+     * 说明：
+     * 1. 缓动类内置了对象池，当缓动结束或被取消后没有立即被指定动作，则会在下一帧自动回收
+     * 2. 由于缓动对象只有在被回收后才会自动释放资源，故不建议在外部持有不工作的缓动对象
+     * 3. 若你的需求必须这么做，则可以这么来防止Tween被回收：Tween.get(target).usePool(false);
+     * 4. 当外部持有的Tween被弃用时，请记得及时回收
      */
-    class Tween extends puremvc.Notifier implements ITween {
+    class Tween extends puremvc.Notifier {
 
         /**
          * 取消缓动
          */
-        cancel(): ITween;
+        cancel(): Tween;
+
+        /**
+         * 回收到对象池
+         */
+        recover(): void;
 
         /**
          * 从当前属性缓动至props属性
+         * @props: 变化的属性集合，其中update属性的类型只能指定为suncom.Handler，可用其来观察缓动数值的变化
+         * @duration: 缓动时长
+         * @ease: 缓动函数，默认为: null
+         * @complete: 缓动结束时的回调，默认为: null
          */
-        to(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
+        to(props: any, duration: number, ease?: Function, complete?: suncom.Handler): Tween;
 
         /**
          * 从props属性缓动至当前属性
+         * @参数详细说明请参考Tween.to
          */
-        from(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
+        from(props: any, duration: number, ease?: Function, complete?: suncom.Handler): Tween;
 
         /**
          * 以props属性的幅度进行缓动
+         * @参数详细说明请参考Tween.to
          */
-        by(props: any, duration: number, ease?: Function, handler?: suncom.IHandler): ITween;
+        by(props: any, duration: number, ease?: Function, complete?: suncom.Handler): Tween;
 
         /**
          * 等待指定时间
          */
-        wait(delay: number, handler?: suncom.IHandler): ITween;
+        wait(delay: number, complete?: suncom.Handler): Tween;
 
         /**
+         * 是否使用对象池
+         * 说明：
+         * 1. 若使用了对象池，且缓动结束或被取消后没有重新指定动作，则在下一帧自动回收
+         */
+        usePool(value: boolean): Tween;
+
+        /**
+         * @target: 执行缓动的对象
          * @mod: 执行缓动的模块，默认为：CUSTOM
          */
-        static get(item: any, mod?: suncore.ModuleEnum): ITween;
+        static get(target: any, mod?: suncore.ModuleEnum): Tween;
     }
 
     class UIManager extends puremvc.Notifier {
@@ -2316,6 +2108,11 @@ declare module sunui {
          * @deleteCount: 需要删除的历史场景个数
          */
         deleteHistories(deleteCount: number): void;
+
+        /**
+         * 移除视图
+         */
+        removeView(view: any): void;
 
         /**
          * 获取2D场景对象
@@ -2396,7 +2193,7 @@ declare module sunui {
      */
     namespace NotifyKey {
         /**
-         * 重试确认请求 { mod: suncore.ModuleEnum, prompt: string, options: IRetryOption[], handler: suncom.IHandler }
+         * 重试确认请求 { mod: suncore.ModuleEnum, prompt: string, options: IRetryOption[], handler: suncom.Handler }
          */
         const RETRY_CONFIRM: string;
 
@@ -2569,1270 +2366,4 @@ declare module sunui {
      * 在对象或子对象中查找
      */
     function find<T>(path: string, parent: Laya.Node): T;
-}
-
-/**
- * @license sunnet (c) 2013 Binfeng Sun <christon.sun@qq.com>
- * Released under the MIT License
- * https://blog.csdn.net/syfolen
- * https://github.com/syfolen/sunnet
- */
-declare module sunnet {
-    /**
-     * MsgQId枚举（谨慎修改）
-     * 说明：
-     * 1. 请勿轻易修改此处的数据，否则可能会影响suncore中MsgQ的业务
-     */
-    enum MsgQIdEnum {
-        /**
-         * 发送数据
-         */
-        NSL_SEND_DATA = 1,
-
-        /**
-         * 接收数据
-         */
-        NSL_RECV_DATA = 2
-    }
-
-    /**
-     * 网络状态枚举
-     */
-    enum NetConnectionStateEnum {
-        /**
-         * 己连接
-         */
-        CONNECTED = 0,
-
-        /**
-         * 正在连接
-         */
-        CONNECTING,
-
-        /**
-         * 己断开
-         */
-        DISCONNECTED
-    }
-
-    /**
-     * 服务端时间更新标记枚举
-     */
-    enum ServerTimeUpdateFlagEnum {
-        /**
-         * 重置
-         */
-        RESET,
-
-        /**
-         * 更新
-         */
-        UPDATE
-    }
-
-    /**
-     * 网络环境模拟等级枚举
-     */
-    enum VirtualNetworkLevelEnum {
-        /**
-         * 无任何模拟
-         */
-        NONE,
-
-        /**
-         * 好
-         */
-        GOOD,
-
-        /**
-         * 差
-         */
-        BAD,
-
-        /**
-         * 极差
-         */
-        UNSTABLE
-    }
-
-    /**
-     * 网络连接对象接口
-     */
-    interface INetConnection extends suncom.IEventSystem {
-        /**
-         * 网络连接状态
-         */
-        readonly state: NetConnectionStateEnum;
-
-        /**
-         * 获取消息管道对象
-         */
-        readonly pipeline: INetConnectionPipeline;
-
-        /**
-         * 请求连接
-         * @byDog: 是否由检测狗发起，默认为false
-         */
-        connect(ip: string, port: number, byDog: boolean): void;
-
-        /**
-         * 关闭 websocket
-         * @byError: 是否因为网络错误而关闭，默认为：false
-         */
-        close(byError?: boolean): void;
-
-        /**
-         * 发送数据
-         * @bytes: 只能是Uint8Array，默认为：null
-         * @ip: 目标地址，默认为：null
-         * @port: 目标端口，默认为：0
-         */
-        sendBytes(cmd: number, bytes?: Uint8Array, ip?: string, port?: number): void;
-    }
-
-    /**
-     * 网络消息拦截器接口
-     */
-    interface INetConnectionInterceptor extends puremvc.INotifier {
-
-        /**
-         * 数据发送拦截接口
-         */
-        send(cmd: number, bytes: Uint8Array, ip: string, port: number): Array<any>;
-
-        /**
-         * 数据接收拦截接口
-         */
-        recv(cmd: number, srvId: number, bytes: Uint8Array, data: any): Array<any>;
-    }
-
-    /**
-     * 消息处理管道接口
-     */
-    interface INetConnectionPipeline extends INetConnectionInterceptor {
-
-        /**
-         * 新增责任处理者
-         * 说明：
-         * 1. 当网络发送数据时，后添加的拦截器先执行
-         * 2. 当网络接收数据时，先添加的拦截器先执行
-         */
-        add(arg0: string | (new (connection: INetConnection) => INetConnectionInterceptor), arg1?: new (connection: INetConnection) => INetConnectionInterceptor): void;
-
-        /**
-         * 移除责任处理责
-         * @cls: 需要被移除的类型
-         */
-        remove(cls: new (connection: INetConnection) => INetConnectionInterceptor): void;
-    }
-
-    /**
-     * 时序接口
-     */
-    interface ISequentialSlice extends puremvc.Notifier {
-
-        /**
-         * 释放时序片断
-         */
-        release(): void;
-    }
-
-    /**
-     * 时间时序接口
-     */
-    interface ISequentialTimeSlice extends ISequentialSlice {
-        /**
-         * 时间流逝的倍率
-         */
-        timeMultiple: number;
-
-        /**
-         * 对象的生命时长
-         */
-        readonly timeLen: number;
-
-        /**
-         * 对象过去的时间
-         */
-        readonly pastTime: number;
-
-        /**
-         * 更新对象的创建时间
-         * @createTime: 创建时间（服务端时间），默认为当前服务端时间
-         * @pastTime: 默认过去时长
-         * @chaseMultiple: 追帧时的时间倍率，默认为：1
-         */
-        updateCreateTime(createTime?: number, pastTime?: number, chaseMultiple?: number): void;
-    }
-
-    /**
-     * 网络消息结构
-     */
-    interface ISocketMessage {
-        /**
-         * 消息ID
-         */
-        id?: number;
-
-        /**
-         * 消息名字
-         */
-        name: string;
-
-        /**
-         * 挂载的数据对象
-         */
-        data?: any;
-
-        /**
-         * 服务器地址
-         */
-        ip?: string;
-
-        /**
-         * 服务器端口
-         */
-        port?: number;
-    }
-
-    /**
-     * 网络连接对象
-     */
-    class NetConnection extends puremvc.Notifier implements INetConnection, suncom.IEventSystem {
-
-        constructor(name: string);
-
-        /**
-         * 请求连接
-         * @byDog: 是否由检测狗发起，默认为false
-         */
-        connect(ip: string, port: number, byDog: boolean): void;
-
-        /**
-         * 关闭 websocket
-         * @byError: 是否因为网络错误而关闭，默认为false
-         */
-        close(byError?: boolean): void;
-
-        /**
-         * 发送数据
-         * @bytes: 只能是Uint8Array，默认为：null
-         * @ip: 目标地址，默认为：null
-         * @port: 目标端口，默认为：0
-         */
-        sendBytes(cmd: number, bytes?: Uint8Array, ip?: string, port?: number): void;
-
-        /**
-         * 取消当前正在派发的事件
-         */
-        dispatchCancel(): void;
-
-        /**
-         * 事件派发
-         * @args[]: 参数列表，允许为任意类型的数据
-         * @cancelable: 事件是否允许被中断，默认为false
-         */
-        dispatchEvent(type: string, args?: any, cancelable?: boolean): void;
-
-        /**
-         * 事件注册
-         * @receiveOnce: 是否只响应一次，默认为false
-         * @priority: 事件优先级，优先级高的先被执行，默认为：suncom.EventPriorityEnum.MID
-         */
-        addEventListener(type: string, method: Function, caller: Object, receiveOnce?: boolean, priority?: suncom.EventPriorityEnum): void;
-
-        /**
-         * 移除事件
-         */
-        removeEventListener(type: string, method: Function, caller: Object): void;
-
-        /**
-         * 网络连接状态
-         */
-        readonly state: NetConnectionStateEnum;
-
-        /**
-         * 获取消息管道对象
-         */
-        readonly pipeline: INetConnectionPipeline;
-    }
-
-    /**
-     * 网络消息拦截器
-     * 自定义拦截器需要继承此类
-     */
-    abstract class NetConnectionInterceptor extends puremvc.Notifier implements INetConnectionInterceptor {
-
-        constructor(connection: INetConnection);
-
-        /**
-         * 销毁拦截器
-         */
-        destroy(): void;
-
-        /**
-         * 网络连接成功
-         */
-        protected $onConnected(): void;
-
-        /**
-         * 网络连接断开
-         */
-        protected $onDisconnected(byError: boolean): void;
-
-        /**
-         * 数据发送拦截接口
-         */
-        send(cmd: number, bytes: Uint8Array, ip: string, port: number): Array<any>;
-
-        /**
-         * 数据接收拦截接口
-         */
-        recv(cmd: number, srvId: number, bytes: Uint8Array, data: any): Array<any>;
-    }
-
-    /**
-     * 网络延时计算脚本
-     */
-    abstract class NetConnectionPing extends NetConnectionInterceptor {
-
-        /**
-         * 网络连接成功
-         */
-        protected $onConnected(): void;
-
-        /**
-         * 数据发送拦截接口
-         */
-        send(cmd: number, bytes: Uint8Array, ip: string, port: number): Array<any>;
-
-        /**
-         * 数据接收拦截接口
-         */
-        recv(cmd: number, srvId: number, bytes: Uint8Array, data: any): Array<any>;
-
-        /**
-         * 判断是否为可靠协议
-         * 说明：
-         * 1. 仅允许由客户端发起，且服务端必定会回复的协议视为可靠协议
-         * 2. 若发送的协议为可靠协议，则会自动为其创建一个追踪器
-         */
-        protected abstract $isReliableProtocal(cmd: number): boolean;
-
-        /**
-         * 获取命令的应答协议号
-         */
-        protected abstract $getProtocalReplyCommand(cmd: number): number;
-
-        /**
-         * 处理接收到的数据
-         */
-        protected abstract $dealRecvData(cmd: number, data: any): void;
-
-        /**
-         * 更新服务器时间
-         * 说明：
-         * 1. 需要由继承类在$dealRecvData中调用来更新服务器时间相关的数据
-         */
-        protected $updateServerTimestamp(time: number, flag: ServerTimeUpdateFlagEnum): void;
-    }
-
-    /**
-     * WebSocket Protobuf数据 解码器
-     * 解码器可存在多个，任意一个解码成功，则会自动跳过其它解码器
-     */
-    abstract class NetConnectionProtobufDecoder extends NetConnectionInterceptor {
-
-        /**
-         * 数据解析执行函数
-         */
-        protected abstract $decode(cmd: number, bytes: Uint8Array): any;
-    }
-
-    /**
-     * 虚拟网络环境，用于模拟现实中的网络延迟，掉线等
-     */
-    class NetConnectionVirtualNetwork extends NetConnectionInterceptor {
-
-        /**
-         * 网络连接的可靠时间
-         * 说明：
-         * 1. 每次网络成功连接，经多少秒后强制断开
-         */
-        protected $getReliableTimeOfConnection(): number;
-
-        /**
-         * 网络延时波动概率（0-100）
-         * 说明：
-         * 1. 当网络发生波动时，延时会较大
-         */
-        protected $getProbabilyOfNetworkWave(): number;
-
-        /**
-         * 数据包的延时时间
-         * 说明：
-         * 1. 每新收到一个数据包，计算它应当被延时的时间
-         */
-        protected $calculateMessageDelayTime(): number;
-    }
-
-    /**
-     * 网络状态检测狗
-     * 用于检测网络是否掉线
-     */
-    class NetConnectionWatchDog extends NetConnectionInterceptor {
-    }
-
-    /**
-     * protobuf管理类
-     */
-    class ProtobufManager {
-
-        static getInstance(): ProtobufManager;
-
-        /**
-         * 构建protobuf
-         */
-        buildProto(url: string): void;
-
-        /**
-         * 构建协议信息
-         */
-        buildProtocal(url: string): void;
-
-        /**
-         * 构建协议信息
-         */
-        buildProtocalJson(json: any): void;
-
-        /**
-         * 根据编号获取协议信息
-         */
-        getProtocalByCommand(cmd: any): any;
-
-        /**
-         * 根据名字获取协议信息
-         */
-        getProtocalByName(name: string): any;
-
-        /**
-         * 根据protobuf枚举定义
-         */
-        getProtoEnum(name: string): any;
-
-        /**
-         * 编码
-         */
-        encode(name: string, data: any): Uint8Array;
-
-        /**
-         * 解码
-         */
-        decode(name: string, bytes: Uint8Array): any;
-    }
-
-    /**
-     * 时序片断
-     */
-    abstract class SequentialSlice extends puremvc.Notifier implements ISequentialSlice {
-
-        /**
-         * 释放时序片断
-         */
-        release(): void;
-
-        private $onEnterFrameCB(): void;
-
-        /**
-         * 帧事件回调
-         */
-        protected abstract $onEnterFrame(): void;
-    }
-
-    /**
-     * 时间片段
-     */
-    abstract class SequentialTimeSlice extends SequentialSlice implements ISequentialTimeSlice {
-        /**
-         * 时间流逝的倍率
-         */
-        timeMultiple: number;
-
-        /**
-         * @timeLen: 时间片断长度
-         * @conName: 默认为"default"
-         * 说明：
-         * 1. 客户端对象是不需要追帧的
-         */
-        constructor(lifeTime: number, conName?: string);
-
-        /**
-         * 更新对象的创建时间
-         * @createTime: 创建时间（服务端时间），默认为当前服务端时间
-         * @pastTime: 默认过去时长
-         * @chaseMultiple: 追帧时的时间倍率，默认为：1
-         */
-        updateCreateTime(createTime?: number, pastTime?: number, chaseMultiple?: number): void;
-
-        /**
-         * 帧事件回调（追帧算法实现函数）
-         */
-        protected $onEnterFrame(): void;
-
-        /**
-         * 帧循环事件（请重写此方法来替代ENTER_FRAME事件）
-         */
-        protected abstract $frameLoop(): void;
-
-        /**
-         * 时间结束回调（回调前会先执行$frameLoop方法）
-         */
-        protected abstract $onTimeup(): void;
-
-        /**
-         * 对象的生命时长
-         */
-        readonly timeLen: number;
-
-        /**
-         * 对象过去的时间
-         */
-        readonly pastTime: number;
-    }
-
-    /**
-     * 网络连接创建器
-     */
-    class NetConnectionCreator extends NetConnectionInterceptor {
-    }
-
-    /**
-     * WebSocket Protobuf数据 解码器
-     * 解码器可存在多个，任意一个解码成功，则会自动跳过其它解码器
-     */
-    class NetConnectionDecoder extends NetConnectionInterceptor {
-    }
-
-    /**
-     * WebSocket 数据编码器，负责打包发送前的数据
-     */
-    class NetConnectionEncoder extends NetConnectionInterceptor {
-    }
-
-    /**
-     * 心跳检测器
-     */
-    class NetConnectionHeartbeat extends NetConnectionInterceptor {
-    }
-
-    /**
-     * 网络模块配置
-     */
-    namespace Config {
-        /**
-         * 服务端地址
-         */
-        let TCP_IP: string;
-
-        /**
-         * 服务端端口
-         */
-        let TCP_PORT: number;
-
-        /**
-         * 重连延时
-         */
-        let TCP_RETRY_DELAY: number;
-
-        /**
-         * 最大重连次数
-         */
-        let TCP_MAX_RETRIES: number;
-
-        /**
-         * 心跳发送指令
-         */
-        let HEARTBEAT_REQUEST_COMMAND: number;
-
-        /**
-         * 心跳接收指令
-         */
-        let HEARTBEAT_RESPONSE_COMMAND: number;
-
-        /**
-         * 心跳超时时间
-         */
-        let HEARTBEAT_TIMEOUT_MILLISECONDS: number;
-
-        /**
-         * 心跳间隔时间
-         */
-        let HEARTBEAT_INTERVAL_MILLISECONDS: number;
-
-        /**
-         * 以固定频率发送心跳，默认为：false
-         * 说明：
-         * 1. 若为true，则心跳的发送频率不受业务数据发送的影响
-         * 2. 若为false，则有业务数据持续发送时，就不会发送心跳
-         */
-        let HEARTBEAT_FIXED_FREQUENCY: boolean;
-
-        /**
-         * 虚拟网络水平
-         */
-        let VIRTUAL_NETWORK_LEVEL: VirtualNetworkLevelEnum;
-    }
-
-    /**
-     * 网络消息派发器
-     */
-    namespace MessageNotifier {
-
-        /**
-         * 通知网络消息
-         */
-        function notify(name: string, data: any, cancelable?: boolean): void;
-
-        /**
-         * 注册网络消息监听
-         */
-        function register(name: string, method: Function, caller: Object, priority?: number): void;
-
-        /**
-         * 移除网络消息监听
-         */
-        function unregister(name: string, method: Function, caller: Object): void;
-    }
-
-    /**
-     * 网络模块消息定义
-     */
-    namespace NotifyKey {
-        /**
-         * 网络状态变化通知 { name: string, state: NetConnectionStateEnum, byError: boolean }
-         */
-        const SOCKET_STATE_CHANGE: string;
-
-        /**
-         * 网络连接失败（检测狗在尝试重连失败后会派发此消息）
-         */
-        const SOCKET_CONNECT_FAILED: string;
-    }
-
-    /**
-     * 获取当前服务器时间戳
-     */
-    function getCurrentServerTimestamp(connName?: string): number;
-}
-
-/**
- * @license world2d (c) 2013 Binfeng Sun <christon.sun@qq.com>
- * Released under the MIT License
- * https://blog.csdn.net/syfolen
- * https://github.com/syfolen/world2d
- */
-declare module world2d {
-    /**
-     * 碰撞层级
-     */
-    enum CollisionLayerEnum {
-        /**
-         * 默认
-         */
-        DEFAULT = 0x01,
-
-        /**
-         * 鱼
-         */
-        FISH = 0x02,
-
-        /**
-         * 子弹
-         */
-        BULLET = 0x04
-    }
-
-    /**
-     * 对撞机接口，仅用来保存对撞机的模型数据，如圆形对撞机的半径、多边形对撞机的顶点等，坐标、缩放、旋转等数据不在此模型中
-     */
-    interface ICollider2D {
-    }
-
-    /**
-     * 圆形对撞机接口
-     */
-    interface IColliderCircle2D extends ICollider2D {
-        /**
-         * 半径
-         */
-        radius: number;
-    }
-
-    /**
-     * 实体对象接口
-     */
-    interface IEntity {
-        /**
-         * 对象主体
-         */
-        readonly body: any;
-
-        /**
-         * 物理数据转换器
-         */
-        readonly transform: ITransform2D;
-
-        /**
-         * 设置对象主体
-         */
-        setBody(body: any): void;
-
-        /**
-         * 碰撞产生
-         */
-        onCollisionEnter(other: IEntity): void;
-
-        /**
-         * 碰撞产生后，结束前，每次计算碰撞结果后调用
-         */
-        onCollisionStay(other: IEntity): void;
-
-        /**
-         * 碰撞结束
-         */
-        onCollisionExit(other: IEntity): void;
-    }
-
-    /**
-     * 点接口
-     */
-    interface IPoint2D {
-        /**
-         * 坐标
-         */
-        x: number;
-
-        /**
-         * 坐标
-         */
-        y: number;
-    }
-
-    /**
-     * 刚体接口
-     */
-    interface IRigidbody2D {
-        /**
-         * 追踪的目标
-         */
-        target: ITransform2D;
-
-        /**
-         * 移动速度
-         */
-        moveSpeed: number;
-    }
-
-    /**
-     * 转换器接口，用来保存对撞机数据模型在世界空间中旋转和缩放值，并提供变换的接口
-     */
-    interface ITransform2D extends suncom.IEventSystem {
-        /**
-         * 坐标
-         */
-        readonly x: number;
-
-        readonly y: number;
-
-        /**
-         * 是否有效（一次性值，默认为true，当其被置成false时，将永远不会被重置）
-         */
-        readonly enabled: boolean;
-
-        /**
-         * 实体对象
-         */
-        readonly entity: IEntity;
-
-        /**
-         * 碰撞区域
-         */
-        readonly collision: ICollision2D;
-
-        /**
-         * 刚体
-         */
-        readonly rigidbody: IRigidbody2D;
-
-        /**
-         * 移动至
-         */
-        moveTo(x: number, y: number): void;
-
-        /**
-         * 旋转至（弧度）
-         */
-        rotateTo(rotation: number): void;
-
-        /**
-         * 获取旋转角度
-         */
-        getRotation(): number;
-
-        /**
-         * 设置旋转角度
-         */
-        setRotation(rotation: number): void;
-
-        /**
-         * 设置为无效
-         */
-        disabled(): void;
-    }
-
-    /**
-     * 向量接口
-     */
-    interface IVector2D extends IPoint2D {
-
-        /**
-         * 赋值
-         */
-        assign(x: number, y: number): IVector2D;
-
-        /**
-         * 相加
-         */
-        add(a: IPoint2D): IVector2D;
-
-        /**
-         * 相减
-         */
-        sub(a: IPoint2D): IVector2D;
-
-        /**
-         * 相乘
-         */
-        mul(value: number): IVector2D;
-
-        /**
-         * 点积
-         */
-        dot(a: IPoint2D): number;
-
-        /**
-         * 叉积
-         */
-        cross(a: IPoint2D): number;
-
-        /**
-         * 归零
-         */
-        zero(): IVector2D;
-
-        /**
-         * 取反
-         */
-        negate(): IVector2D;
-
-        /**
-         * 旋转（弘度）
-         */
-        rotate(radian: number): IVector2D;
-
-        /**
-         * 向量与x轴之间的弧度
-         */
-        angle(): number;
-
-        /**
-         * 返回新的向量作为当前向量的法向量
-         * NOTE：法向量与向量相交，且相互垂直，向量的法向量为(-y,x)或(y,-x)
-         */
-        normal(): IVector2D;
-
-        /**
-         * 归一
-         */
-        normalize(): IVector2D;
-
-        /**
-         * 长量
-         */
-        length(): number;
-
-        /**
-         * 长量的平方
-         */
-        lengthSquared(): number;
-
-        /**
-         * 计算到指定位置的距离
-         */
-        distanceTo(p: IPoint2D): number;
-
-        /**
-         * 计算到指定位置的距离平方
-         */
-        distanceToSquared(p: IPoint2D): number;
-
-        /**
-         * 拷贝
-         */
-        copy(): IVector2D;
-
-        /**
-         * 输出字符串
-         */
-        toString(): string;
-    }
-
-    /**
-     * 简单2D物理
-     * 特性：
-     * 1. 碰撞实现，包括旋转和缩放
-     * 2. 移动实现，包括速度和扭矩
-     * 需求来自：
-     * 1. 捕鱼达人
-     */
-    interface IWorld2D {
-
-        /**
-         * 更新物理
-         */
-        update(delta: number): void;
-
-        /**
-         * 添加对象
-         * @layer: 默认为 CollisionLayerEnum.DEFAULT
-         */
-        addTransform(transform: ITransform2D, layer?: CollisionLayerEnum): void;
-
-        /**
-         * 移除对象
-         */
-        removeTransform(transform: ITransform2D): void;
-
-        /**
-         * 指定碰撞层级
-         */
-        addDetector(a: CollisionLayerEnum, b: CollisionLayerEnum): void;
-    }
-
-    /**
-     * 碰撞体接口，用来保存对撞机数据模型在世界空间中的映射数据，包括矩形绝对区域、圆绝对半径和多边形的顶点绝对坐标
-     */
-    interface ICollision2D extends IPoint2D {
-    }
-
-    /**
-     * 圆形碰撞区域接口（效率最高）
-     */
-    interface ICollisionCircle2D extends ICollision2D {
-        /**
-         * 半径
-         */
-        radius: number;
-    }
-
-    /**
-     * 对撞机原始数据模型
-     */
-    abstract class Collider2D implements ICollider2D {
-    }
-
-    /**
-     * 圆形对撞机
-     */
-    class ColliderCircle2D extends Collider2D implements IColliderCircle2D {
-        /**
-         * 半径
-         */
-        radius: number;
-
-        constructor(radius: number);
-    }
-
-    /**
-     * 对撞机世界数据模型
-     */
-    abstract class Collision2D implements ICollision2D {
-        /**
-         * 坐标
-         */
-        x: number;
-
-        y: number;
-    }
-
-    /**
-     * 圆形碰撞区域（效率最高）
-     */
-    class CollisionCircle2D extends Collision2D implements ICollisionCircle2D {
-        /**
-         * 半径
-         */
-        radius: number;
-
-        constructor(radius: number);
-    }
-
-    /**
-     * 物理类
-     */
-    class Physics2D {
-
-        /**
-         * 返回所有与指定点碰撞的图形
-         */
-        static testPoint(p: IVector2D, layers?: CollisionLayerEnum): ITransform2D;
-    }
-
-    /**
-     * 刚体
-     */
-    class Rigidbody2D implements IRigidbody2D {
-        /**
-         * 追踪的目标
-         */
-        target: ITransform2D;
-
-        /**
-         * 移动速度
-         */
-        moveSpeed: number;
-    }
-
-    /**
-     * 转换器，用来保存对撞机数据模型在世界空间中的坐标、旋转和缩放值，并提供变换的接口
-     */
-    class Transform2D extends suncom.EventSystem implements ITransform2D {
-
-        /**
-         * @vertexs: 原始顶点数据
-         */
-        constructor(entity: IEntity, collider: ICollider2D, rigidbody: IRigidbody2D, collision: ICollision2D);
-
-        /**
-         * 移动至
-         */
-        moveTo(x: number, y: number): void;
-
-        /**
-         * 旋转至（弧度）
-         */
-        rotateTo(value: number): void;
-
-        /**
-         * 获取旋转角度
-         */
-        getRotation(): number;
-
-        /**
-         * 设置旋转角度
-         */
-        setRotation(rotation: number): void;
-
-        /**
-         * 设置为无效
-         */
-        disabled(): void;
-
-        /**
-         * 获取坐标
-         */
-        readonly x: number;
-
-        readonly y: number;
-
-        /**
-         * 是否有效（一次性值，默认为true，当其被置成false时，将永远不会被重置）
-         */
-        readonly enabled: boolean;
-
-        /**
-         * 获取实体对象
-         */
-        readonly entity: IEntity;
-
-        /**
-         * 碰撞体
-         */
-        readonly collision: ICollision2D;
-
-        /**
-         * 获取刚体
-         */
-        readonly rigidbody: IRigidbody2D;
-    }
-
-    /**
-     * 向量
-     */
-    class Vector2D implements IVector2D {
-        /**
-         * 坐标
-         */
-        x: number;
-
-        /**
-         * 坐标
-         */
-        y: number;
-
-        constructor(x: number, y: number);
-
-        /**
-         * 赋值
-         */
-        assign(x: number, y: number): IVector2D;
-
-        /**
-         * 相加
-         */
-        add(vec2: IPoint2D): IVector2D;
-
-        /**
-         * 相减
-         */
-        sub(vec2: IPoint2D): IVector2D;
-
-        /**
-         * 相乘
-         */
-        mul(value: number): IVector2D;
-
-        /**
-         * 点积
-         */
-        dot(a: IPoint2D): number;
-
-        /**
-         * 叉积
-         */
-        cross(a: IPoint2D): number;
-
-        /**
-         * 相反
-         */
-        negate(): IVector2D;
-
-        /**
-         * 旋转（弘度）
-         */
-        rotate(radian: number): IVector2D;
-
-        /**
-         * 向量与x轴之间的弧度
-         */
-        angle(): number;
-
-        /**
-         * 归零
-         */
-        zero(): IVector2D;
-
-        /**
-         * 返回新的向量作为当前向量的法向量
-         * NOTE：法向量与向量相交，且相互垂直，向量的法向量为(-y,x)或(y,-x)
-         */
-        normal(): IVector2D;
-
-        /**
-         * 归一
-         */
-        normalize(): IVector2D;
-
-        /**
-         * 长度
-         */
-        length(): number;
-
-        /**
-         * 长度平方
-         */
-        lengthSquared(): number;
-
-        /**
-         * 计算到指定位置的距离
-         */
-        distanceTo(p: IPoint2D): number;
-
-        /**
-         * 计算到指定位置的距离平方
-         */
-        distanceToSquared(p: IPoint2D): number;
-
-        /**
-         * 拷贝
-         */
-        copy(): IVector2D;
-
-        /**
-         * 输出向量值
-         */
-        toString(): string;
-
-        /**
-         * 两向量相加
-         */
-        static add(a: IPoint2D, b: IPoint2D): IVector2D;
-
-        /**
-         * 两向量相减
-         */
-        static sub(a: IPoint2D, b: IPoint2D): IVector2D;
-
-        /**
-         * 法向量
-         */
-        static normal(a: IPoint2D, b: IPoint2D): IVector2D;
-
-        /**
-         * 计算两个向量之间的夹角
-         */
-        static angle(a: IVector2D, b: IVector2D): number;
-    }
-
-    /**
-     * 2D世界
-     * 此类主要实现2D世界的碰撞
-     */
-    class World2D implements IWorld2D {
-        /**
-         * 调试模式
-         */
-        static DEBUG: boolean;
-
-        /**
-         * 单例对象
-         */
-        static inst: IWorld2D;
-
-        constructor(graphics: Laya.Graphics);
-
-        /**
-         * 实时物理计算
-         */
-        update(delta: number): void;
-
-        /**
-         * 添加对象
-         * @layer: 默认为 CollisionLayerEnum.DEFAULT
-         */
-        addTransform(transform: ITransform2D, layer?: CollisionLayerEnum): void;
-
-        /**
-         * 移除对象
-         */
-        removeTransform(transform: ITransform2D): void;
-
-        /**
-         * 添加探测器
-         */
-        addDetector(a: CollisionLayerEnum, b: CollisionLayerEnum): void;
-    }
-
-    namespace Helper2D {
-    }
 }
